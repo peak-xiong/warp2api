@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
-REM Warp2Api Windows 停止脚本
+REM warp2api Windows 停止脚本
 REM 停止所有相关的服务器进程
 
 REM Windows CMD 不支持ANSI颜色，移除颜色定义以保持与Mac脚本一致的逻辑
@@ -69,17 +69,17 @@ goto :eof
 
 REM 停止服务器函数
 :stop_servers
-call :log_info "正在停止Warp2Api服务器..."
+call :log_info "正在停止warp2api服务器..."
 
 REM 首先尝试通过进程名停止我们的Python进程
 call :log_info "终止Python服务器进程..."
 for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq python.exe" /FO CSV ^| find "python.exe"') do (
     REM 检查进程命令行是否包含我们的脚本
-    for /f "tokens=*" %%c in ('wmic process where "ProcessId=%%a" get CommandLine /value 2^>nul ^| find "server.py"') do (
+    for /f "tokens=*" %%c in ('wmic process where "ProcessId=%%a" get CommandLine /value 2^>nul ^| find "warp2api-bridge"') do (
         call :log_info "终止Protobuf桥接服务器进程 (PID: %%a)"
         taskkill /PID %%a /F >nul 2>&1
     )
-    for /f "tokens=*" %%c in ('wmic process where "ProcessId=%%a" get CommandLine /value 2^>nul ^| find "openai_compat.py"') do (
+    for /f "tokens=*" %%c in ('wmic process where "ProcessId=%%a" get CommandLine /value 2^>nul ^| find "warp2api-openai"') do (
         call :log_info "终止OpenAI兼容API服务器进程 (PID: %%a)"
         taskkill /PID %%a /F >nul 2>&1
     )
@@ -90,7 +90,7 @@ call :log_info "清理端口进程..."
 for /f "tokens=5" %%a in ('netstat -ano ^| find "28888"') do (
     REM 检查是否是我们自己的进程
     for /f "tokens=*" %%c in ('wmic process where "ProcessId=%%a" get CommandLine /value 2^>nul') do (
-        echo %%c | findstr /C:"server.py" >nul
+        echo %%c | findstr /C:"warp2api-bridge" >nul
         if !errorlevel!==0 (
             call :log_info "终止端口28888的服务器进程 (PID: %%a)"
             taskkill /PID %%a /F >nul 2>&1
@@ -100,7 +100,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| find "28888"') do (
 for /f "tokens=5" %%a in ('netstat -ano ^| find "28889"') do (
     REM 检查是否是我们自己的进程
     for /f "tokens=*" %%c in ('wmic process where "ProcessId=%%a" get CommandLine /value 2^>nul') do (
-        echo %%c | findstr /C:"openai_compat.py" >nul
+        echo %%c | findstr /C:"warp2api-openai" >nul
         if !errorlevel!==0 (
             call :log_info "终止端口28889的服务器进程 (PID: %%a)"
             taskkill /PID %%a /F >nul 2>&1
@@ -130,7 +130,7 @@ goto :eof
 
 REM 显示帮助信息
 :show_help
-echo Warp2Api Windows 停止脚本
+echo warp2api Windows 停止脚本
 echo.
 echo 用法:
 echo   stop.bat          # 停止所有服务器
@@ -138,7 +138,7 @@ echo   stop.bat status   # 查看服务器状态
 echo   stop.bat help     # 显示此帮助信息
 echo.
 echo 功能:
-echo   - 安全停止所有Warp2Api相关进程
+echo   - 安全停止所有warp2api相关进程
 echo   - 清理端口占用
 echo   - 可选清理日志文件
 echo   - 显示详细的状态信息

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Warp2Api 对外接口测试脚本
+# warp2api 对外接口测试脚本
 # 只测试对外API接口功能
 
 set -e
@@ -47,7 +47,7 @@ log_error() {
 
 if [ "$VERBOSE" = "true" ]; then
     echo -e "${BLUE}==========================================${NC}"
-    echo -e "${BLUE}🚀 Warp2Api 对外接口测试${NC}"
+    echo -e "${BLUE}🚀 warp2api 对外接口测试${NC}"
     echo -e "${BLUE}==========================================${NC}"
 
     # 检查API服务器是否运行

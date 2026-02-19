@@ -1,4 +1,4 @@
-# Warp2Api
+# warp2api
 
 基于 Python 的桥接服务，为 Warp AI 服务提供 OpenAI Chat Completions API 兼容性，通过利用 Warp 的 protobuf 基础架构，实现与 OpenAI 兼容应用程序的无缝集成。
 
@@ -25,7 +25,7 @@
 1. **克隆仓库:**
    ```bash
    git clone <repository-url>
-   cd Warp2Api
+   cd warp2api
    ```
 
 2. **使用 uv 安装依赖 (推荐):**
@@ -43,7 +43,7 @@
 
     如需自定义配置，可以创建 `.env` 文件:
     ```env
-    # Warp2Api 配置
+    # warp2api 配置
     # 设置为 true 启用详细日志输出，默认 false（静默模式）
     W2A_VERBOSE=false
 
@@ -119,42 +119,43 @@ test.bat -v        # 测试API接口功能（详细模式）
 
 1. **启动 Protobuf 桥接服务器:**
    ```bash
-   python server.py
+   uv run warp2api-bridge --port 28888
    ```
    默认地址: `http://localhost:28888`
 
 2. **启动 OpenAI 兼容 API 服务器:**
    ```bash
-   python openai_compat.py
+   uv run warp2api-openai --port 28889
    ```
    默认地址: `http://localhost:28889`
 
 ### 支持的模型
 
-Warp2Api 支持以下 AI 模型：
+warp2api 支持以下 AI 模型：
 
-#### Anthropic Claude 系列
-- `claude-4-sonnet` - Claude 4 Sonnet 模型
-- `claude-4-opus` - Claude 4 Opus 模型
-- `claude-4.1-opus` - Claude 4.1 Opus 模型
+#### 核心模型
+- `auto`
+- `claude-4-sonnet`
+- `claude-4.1-opus`
+- `claude-4.5-haiku`
+- `claude-4.5-sonnet`
+- `claude-4.5-opus`
+- `claude-4.6-sonnet`
+- `claude-4.6-opus`
+- `gemini-2.5-pro`
+- `gemini-3-pro`
+- `glm-4.7-us-hosted`
+- `gpt-5`
+- `gpt-5.1`
+- `gpt-5.2`
+- `gpt-5.3-codex`
 
-#### Google Gemini 系列
-- `gemini-2.5-pro` - Gemini 2.5 Pro 模型
-
-#### OpenAI GPT 系列
-- `gpt-4.1` - GPT-4.1 模型
-- `gpt-4o` - GPT-4o 模型
-- `gpt-5` - GPT-5 基础模型
-- `gpt-5 (high reasoning)` - GPT-5 高推理模式
-
-#### OpenAI o系列
-- `o3` - o3 模型
-- `o4-mini` - o4-mini 模型
+完整列表请以 `GET /v1/models` 返回为准。
 
 ### 使用 API
 
 #### 🔓 认证说明
-**重要：Warp2Api 的 OpenAI 兼容接口不需要 API key 验证！**
+**重要：warp2api 的 OpenAI 兼容接口不需要 API key 验证！**
 
 - 服务器会自动处理 Warp 服务的认证
 - 客户端可以发送任意的 `api_key` 值（或完全省略）
@@ -239,23 +240,28 @@ main();
 ### 模型选择建议
 
 - **编程任务**: 推荐使用 `claude-4-sonnet` 或 `gpt-5`
-- **创意写作**: 推荐使用 `claude-4-opus` 或 `gpt-4o`
+- **创意写作**: 推荐使用 `claude-4.6-opus` 或 `gpt-5.2`
 - **代码审查**: 推荐使用 `claude-4.1-opus`
-- **推理任务**: 推荐使用 `gpt-5 (high reasoning)` 或 `o3`
-- **轻量任务**: 推荐使用 `o4-mini` 或 `gpt-4o`
+- **推理任务**: 推荐使用 `gpt-5.3-codex` 或 `claude-4.6-opus-max`
+- **轻量任务**: 推荐使用 `claude-4.5-haiku` 或 `gpt-5.1`
 
 ### 可用端点
 
 #### Protobuf 桥接服务器 (`http://localhost:28888`)
 - `GET /healthz` - 健康检查
-- `POST /encode` - 将 JSON 编码为 protobuf
-- `POST /decode` - 将 protobuf 解码为 JSON
+- `POST /api/encode` - 将 JSON 编码为 protobuf
+- `POST /api/decode` - 将 protobuf 解码为 JSON
 - `WebSocket /ws` - 实时监控
 
 #### OpenAI API 服务器 (`http://localhost:28889`)
 - `GET /` - 服务状态
 - `GET /healthz` - 健康检查
+- `GET /v1/models` - 模型列表
 - `POST /v1/chat/completions` - OpenAI Chat Completions 兼容端点
+- `POST /v1/responses` - OpenAI Responses 兼容端点
+- `POST /v1/messages` - Anthropic Messages 兼容端点
+- `POST /v1/models/{model}:generateContent` - Gemini 兼容端点
+- `POST /v1/models/{model}:streamGenerateContent` - Gemini 流式端点
 
 ## 🏗️ 架构
 
@@ -275,16 +281,19 @@ main();
 
 ### 核心组件
 
-- **`protobuf2openai/`**: OpenAI API 兼容层
-  - 消息格式转换
-  - 流式响应处理
-  - 错误映射和验证
+- **`src/warp2api/adapters/`**: 协议适配层（OpenAI/Anthropic/Gemini）
+  - 仅处理 HTTP 路由与协议格式转换
+  - 不承载核心业务编排逻辑
 
-- **`warp2protobuf/`**: Warp protobuf 通信层
-  - JWT 认证管理
-  - Protobuf 编解码
-  - WebSocket 监控
-  - 请求路由和验证
+- **`src/warp2api/application/services/`**: 应用编排层（主逻辑）
+  - 请求鉴权、Bridge 预热、会话状态管理
+  - Warp packet 构造与响应事件聚合
+  - OpenAI/Responses 协议数据转换
+
+- **`src/warp2api/infrastructure/`**: 底层能力层
+  - Protobuf 编解码与运行时
+  - Warp 传输与事件解析
+  - 认证刷新、账号池监控、配置管理
 
 ## 🔧 配置
 
@@ -311,8 +320,22 @@ main();
 # 启动 protobuf 桥接服务器
 warp-server
 
-# 启动 OpenAI API 服务器  
-warp-test
+# 启动 OpenAI API 服务器
+warp-openai
+
+# 统一启动器
+warp2api --mode bridge
+warp2api --mode openai
+
+# proto 校验
+warp2api-proto check
+
+# 与外部 proto 目录做差异对比
+warp2api-proto diff --against /path/to/proto --show-patch
+
+# 从 Warp 二进制提取 proto（可选直接覆盖到项目）
+warp2api-proto extract --output /tmp/warp-proto
+warp2api-proto extract --output /tmp/warp-proto --apply
 ```
 
 ## 🔐 认证
@@ -327,22 +350,15 @@ warp-test
 
 ### 项目结构
 
-```
-Warp2Api/
-├── protobuf2openai/          # OpenAI API 兼容层
-│   ├── app.py               # FastAPI 应用程序
-│   ├── router.py            # API 路由
-│   ├── models.py            # Pydantic 模型
-│   ├── bridge.py            # 桥接初始化
-│   └── sse_transform.py     # 服务器发送事件
-├── warp2protobuf/           # Warp protobuf 层
-│   ├── api/                 # API 路由
-│   ├── core/                # 核心功能
-│   │   ├── auth.py          # 认证
-│   │   ├── protobuf_utils.py # Protobuf 工具
-│   │   └── logging.py       # 日志设置
-│   ├── config/              # 配置
-│   └── warp/                # Warp 特定代码
+``` 
+warp2api/
+├── src/warp2api/
+│   ├── domain/              # 领域模型与策略
+│   ├── application/         # 应用服务编排（主逻辑）
+│   ├── infrastructure/      # protobuf/传输/认证/监控实现
+│   ├── adapters/            # OpenAI/Anthropic/Gemini 协议适配
+│   └── app/                 # 服务入口与启动
+│   └── proto/               # Warp proto 定义
 ├── server.py                # Protobuf 桥接服务器
 ├── openai_compat.py         # OpenAI API 服务器
 ├── start.sh                 # Linux/macOS 启动脚本
@@ -354,6 +370,7 @@ Warp2Api/
 ├── start.ps1                # Windows PowerShell 启动脚本
 ├── docs/                    # 项目文档
 │   ├── TROUBLESHOOTING.md   # 故障排除指南
+│   ├── current_architecture.md # 当前架构说明（最新）
 │   └── screenshots/         # 项目截图
 └── pyproject.toml           # 项目配置
 ```

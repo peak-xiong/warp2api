@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
-REM Warp2Api Windows 对外接口测试脚本
+REM warp2api Windows 对外接口测试脚本
 REM 只测试对外API接口功能
 
 REM 从 .env 文件加载环境变量（如果存在）
@@ -43,7 +43,7 @@ goto :eof
 
 if "%W2A_VERBOSE%"=="true" (
     echo ============================================
-    echo 🚀 Warp2Api 对外接口测试
+    echo 🚀 warp2api 对外接口测试
     echo ============================================
 
     REM 检查API服务器是否运行

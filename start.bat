@@ -2,7 +2,7 @@
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 
-REM Warp2Api Windows 快速启动脚本
+REM warp2api Windows 快速启动脚本
 REM 启动两个服务器：Protobuf桥接服务器和OpenAI兼容API服务器
 
 REM Windows CMD 不支持ANSI颜色，移除颜色定义以保持与Mac脚本一致的逻辑
@@ -212,7 +212,7 @@ if %errorlevel%==0 (
 )
 
 REM 启动服务器（后台运行）
-start /B python server.py --port %BRIDGE_PORT% > bridge_server.log 2>&1
+start /B uv run warp2api-bridge --port %BRIDGE_PORT% > bridge_server.log 2>&1
 set BRIDGE_PID=%errorlevel%
 
 REM 等待服务器启动
@@ -252,7 +252,7 @@ if %errorlevel%==0 (
 )
 
 REM 启动服务器（后台运行）
-start /B python openai_compat.py --port %OPENAI_PORT% > openai_server.log 2>&1
+start /B uv run warp2api-openai --port %OPENAI_PORT% > openai_server.log 2>&1
 set OPENAI_PID=%errorlevel%
 
 REM 等待服务器启动
@@ -278,7 +278,7 @@ REM 显示服务器状态
 :show_status
 echo.
 echo ============================================
-echo 🚀 Warp2Api 服务器状态
+echo 🚀 warp2api 服务器状态
 echo ============================================
 echo 📍 Protobuf桥接服务器: http://localhost:28888
 echo 📍 OpenAI兼容API服务器: http://localhost:28889
@@ -288,15 +288,14 @@ echo ⬇️ KilloCode 下载地址：https://app.kilocode.ai/users/sign_up?refer
 echo.
 echo 🔧 支持的模型:http://127.0.0.1:28889/v1/models
 echo    • claude-4-sonnet
-echo    • claude-4-opus
+echo    • claude-4.5-opus
+echo    • claude-4.6-opus
 echo    • claude-4.1-opus
 echo    • gemini-2.5-pro
-echo    • gpt-4.1
-echo    • gpt-4o
+echo    • gpt-5.1
+echo    • gpt-5.2
 echo    • gpt-5
-echo    • gpt-5 (high reasoning)
-echo    • o3
-echo    • o4-mini
+echo    • gpt-5.3-codex
 echo.
 setlocal enabledelayedexpansion
     <nul set /p="🔑 当前API接口Token: "
@@ -333,7 +332,7 @@ call :auto_configure
 
 :main
 echo ============================================
-echo 🚀 Warp2Api Windows 快速启动脚本
+echo 🚀 warp2api Windows 快速启动脚本
 echo ============================================
 
 REM 检查命令行参数
@@ -352,7 +351,7 @@ REM 显示状态信息
 call :show_status
 
 if "%W2A_VERBOSE%"=="true" (
-    call :log_success "Warp2Api启动完成！"
+    call :log_success "warp2api启动完成！"
     call :log_info "服务器正在后台运行，按 Ctrl+C 退出"
     echo.
     echo 📋 实时日志监控 (按 Ctrl+C 退出):
@@ -380,7 +379,7 @@ if "%W2A_VERBOSE%"=="true" (
     echo.
     pause
 ) else (
-    call :log_success "Warp2Api启动完成！服务器正在后台运行。"
+    call :log_success "warp2api启动完成！服务器正在后台运行。"
 )
 goto :eof
 

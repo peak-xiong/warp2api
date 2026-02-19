@@ -2,7 +2,7 @@
 
 <#
 .SYNOPSIS
-    Warp2Api Windows PowerShell 快速启动脚本
+    warp2api Windows PowerShell 快速启动脚本
 .DESCRIPTION
     启动两个服务器：Protobuf桥接服务器和OpenAI兼容API服务器
 .PARAMETER Verbose
@@ -286,7 +286,7 @@ function Start-BridgeServer {
 
     # 启动服务器（后台运行）
     try {
-        $process = Start-Process -FilePath "python" -ArgumentList "server.py", "--port", $bridgePort -NoNewWindow -RedirectStandardOutput "bridge_server.log" -RedirectStandardError "bridge_server.log" -PassThru
+        $process = Start-Process -FilePath "uv" -ArgumentList "run", "warp2api-bridge", "--port", $bridgePort -NoNewWindow -RedirectStandardOutput "bridge_server.log" -RedirectStandardError "bridge_server.log" -PassThru
         $bridgePid = $process.Id
 
         # 等待服务器启动
@@ -330,7 +330,7 @@ function Start-OpenAIServer {
 
     # 启动服务器（后台运行）
     try {
-        $process = Start-Process -FilePath "python" -ArgumentList "openai_compat.py", "--port", $openaiPort -NoNewWindow -RedirectStandardOutput "openai_server.log" -RedirectStandardError "openai_server.log" -PassThru
+        $process = Start-Process -FilePath "uv" -ArgumentList "run", "warp2api-openai", "--port", $openaiPort -NoNewWindow -RedirectStandardOutput "openai_server.log" -RedirectStandardError "openai_server.log" -PassThru
         $openaiPid = $process.Id
 
         # 等待服务器启动
@@ -362,7 +362,7 @@ function Start-OpenAIServer {
 function Show-Status {
     Write-Host ""
     Write-Host "============================================"
-    Write-Host "🚀 Warp2Api 服务器状态"
+    Write-Host "🚀 warp2api 服务器状态"
     Write-Host "============================================"
     Write-Host "📍 Protobuf桥接服务器: http://localhost:28888"
     Write-Host "📍 OpenAI兼容API服务器: http://localhost:28889"
@@ -372,15 +372,14 @@ function Show-Status {
     Write-Host ""
     Write-Host "🔧 支持的模型:http://127.0.0.1:28889/v1/models"
     Write-Host "   • claude-4-sonnet"
-    Write-Host "   • claude-4-opus"
+    Write-Host "   • claude-4.5-opus"
+    Write-Host "   • claude-4.6-opus"
     Write-Host "   • claude-4.1-opus"
     Write-Host "   • gemini-2.5-pro"
-    Write-Host "   • gpt-4.1"
-    Write-Host "   • gpt-4o"
+    Write-Host "   • gpt-5.1"
+    Write-Host "   • gpt-5.2"
     Write-Host "   • gpt-5"
-    Write-Host "   • gpt-5 (high reasoning)"
-    Write-Host "   • o3"
-    Write-Host "   • o4-mini"
+    Write-Host "   • gpt-5.3-codex"
     Write-Host ""
     Write-Host "🔑 当前API接口Token:" -NoNewline
     Write-Host " "
@@ -425,7 +424,7 @@ function Stop-Servers {
     Get-Process | Where-Object { $_.ProcessName -eq "python" -or $_.ProcessName -eq "python3" } | ForEach-Object {
         try {
             $commandLine = (Get-WmiObject Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
-            if ($commandLine -match "server\.py|openai_compat\.py") {
+            if ($commandLine -match "warp2api-bridge|warp2api-openai") {
                 Write-LogInfo "优雅终止服务器进程 (PID: $($_.Id))"
                 Stop-Process -Id $_.Id -ErrorAction SilentlyContinue
             }
@@ -446,7 +445,7 @@ function Stop-Servers {
             $process = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
             if ($process) {
                 $commandLine = (Get-WmiObject Win32_Process -Filter "ProcessId=$($process.Id)").CommandLine
-                if ($commandLine -match "server\.py|openai_compat\.py") {
+                if ($commandLine -match "warp2api-bridge|warp2api-openai") {
                     Write-LogWarning "终止我们的服务器进程 (PID: $($process.Id))"
                     # 首先尝试优雅终止
                     Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
@@ -473,7 +472,7 @@ function Stop-Servers {
             $process = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
             if ($process) {
                 $commandLine = (Get-WmiObject Win32_Process -Filter "ProcessId=$($process.Id)").CommandLine
-                if ($commandLine -match "server\.py|openai_compat\.py") {
+                if ($commandLine -match "warp2api-bridge|warp2api-openai") {
                     Write-LogWarning "终止我们的服务器进程 (PID: $($process.Id))"
                     # 首先尝试优雅终止
                     Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
@@ -506,7 +505,7 @@ function Main {
     }
 
     Write-Host "============================================"
-    Write-Host "🚀 Warp2Api PowerShell 快速启动脚本"
+    Write-Host "🚀 warp2api PowerShell 快速启动脚本"
     Write-Host "============================================"
 
     # 检查环境
@@ -531,7 +530,7 @@ function Main {
     Show-Status
 
     if ($env:W2A_VERBOSE -eq "true") {
-        Write-LogSuccess "Warp2Api启动完成！"
+        Write-LogSuccess "warp2api启动完成！"
         Write-LogInfo "服务器正在后台运行，按 Ctrl+C 退出"
 
         Write-Host ""
@@ -547,7 +546,7 @@ function Main {
         }
     }
     else {
-        Write-LogSuccess "Warp2Api启动完成！服务器正在后台运行。"
+        Write-LogSuccess "warp2api启动完成！服务器正在后台运行。"
     }
 }
 

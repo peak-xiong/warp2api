@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Warp2Api 一键启动脚本 (修复版)
+# warp2api 一键启动脚本 (修复版)
 # 启动两个服务器：Protobuf桥接服务器和OpenAI兼容API服务器
 
 set -e  # 遇到错误立即退出
@@ -144,7 +144,7 @@ start_bridge_server() {
     fi
 
     # 启动服务器（后台运行）
-    nohup python3 server.py --port $BRIDGE_PORT > bridge_server.log 2>&1 &
+    nohup uv run warp2api-bridge --port $BRIDGE_PORT > bridge_server.log 2>&1 &
     BRIDGE_PID=$!
 
     # 等待服务器启动
@@ -178,7 +178,7 @@ start_openai_server() {
     fi
 
     # 启动服务器（后台运行）
-    nohup python3 openai_compat.py --port $OPENAI_PORT > openai_server.log 2>&1 &
+    nohup uv run warp2api-openai --port $OPENAI_PORT > openai_server.log 2>&1 &
     OPENAI_PID=$!
 
     # 等待服务器启动
@@ -201,7 +201,7 @@ start_openai_server() {
 show_status() {
     echo
     echo "=========================================="
-    echo "🚀 Warp2Api 服务器状态"
+    echo "🚀 warp2api 服务器状态"
     echo "=========================================="
     echo "📍 Protobuf桥接服务器: http://localhost:28888"
     echo "📍 OpenAI兼容API服务器: http://localhost:28889"
@@ -211,15 +211,14 @@ show_status() {
     echo
     echo "🔧 支持的模型:http://127.0.0.1:28889/v1/models"
     echo "   • claude-4-sonnet"
-    echo "   • claude-4-opus"
+    echo "   • claude-4.5-opus"
+    echo "   • claude-4.6-opus"
     echo "   • claude-4.1-opus"
     echo "   • gemini-2.5-pro"
-    echo "   • gpt-4.1"
-    echo "   • gpt-4o"
+    echo "   • gpt-5.1"
+    echo "   • gpt-5.2"
     echo "   • gpt-5"
-    echo "   • gpt-5 (high reasoning)"
-    echo "   • o3"
-    echo "   • o4-mini"
+    echo "   • gpt-5.3-codex"
     echo
     echo -n "🔑 当前API接口Token: "
     if [ -f ".env" ]; then
@@ -248,8 +247,8 @@ stop_servers() {
     log_info "停止所有服务器..."
 
     # 停止所有相关进程
-    pkill -f "python3 server.py" 2>/dev/null || true
-    pkill -f "python3 openai_compat.py" 2>/dev/null || true
+    pkill -f "warp2api-bridge" 2>/dev/null || true
+    pkill -f "warp2api-openai" 2>/dev/null || true
 
     # 清理可能的僵尸进程（使用小众端口）
     lsof -ti:28888 | xargs kill -9 2>/dev/null || true
@@ -314,7 +313,7 @@ auto_configure() {
 # 主函数
 main() {
     echo "=========================================="
-    echo "🚀 Warp2Api 一键启动脚本 (修复版)"
+    echo "🚀 warp2api 一键启动脚本 (修复版)"
     echo "=========================================="
 
     # 检查命令行参数
@@ -339,7 +338,7 @@ main() {
     show_status
 
     if [ "$VERBOSE" = "true" ]; then
-        log_success "Warp2Api启动完成！"
+        log_success "warp2api启动完成！"
         log_info "服务器正在后台运行，按 Ctrl+C 退出"
 
         # 保持脚本运行，显示日志
@@ -351,7 +350,7 @@ main() {
         tail -f bridge_server.log openai_server.log &
         TAIL_PID=$!
     else
-        log_success "Warp2Api启动完成！服务器正在后台运行。"
+        log_success "warp2api启动完成！服务器正在后台运行。"
         exit 0
     fi
 

@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "warp2api"
 version = "0.1.0"
@@ -12,14 +16,32 @@ dependencies = [
     "grpcio-tools",
     "python-dotenv",
     "websockets>=15.0.1",
-    "requests>=2.32.5",
     "openai>=1.106.0",
 ]
 
 [project.scripts]
-warp-server = "server:main"
-warp-openai = "openai_compat:main"
+warp-server = "warp2api.app.bridge_runtime:main"
+warp-openai = "warp2api.app.openai_runtime:main"
+warp2api = "warp2api.app.main:main"
+warp2api-bridge = "warp2api.app.bridge:main"
+warp2api-openai = "warp2api.app.openai:main"
+warp2api-proto = "warp2api.tools.proto_sync:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = [".", "src"]
+include = ["warp2api*"]
+
+[tool.setuptools.package-data]
+warp2api = ["proto/*.proto"]
 
 [[tool.uv.index]]
 url = "https://mirrors.ustc.edu.cn/pypi/simple"
 default = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

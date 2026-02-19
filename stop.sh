@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Warp2Api 停止脚本
+# warp2api 停止脚本
 # 停止所有相关的服务器进程
 
 set -e  # 遇到错误立即退出
@@ -47,12 +47,12 @@ log_error() {
 
 # 停止服务器函数
 stop_servers() {
-    log_info "正在停止Warp2Api服务器..."
+    log_info "正在停止warp2api服务器..."
 
     # 停止Python服务器进程
     log_info "终止Python服务器进程..."
-    pkill -f "python3 server.py" 2>/dev/null || true
-    pkill -f "python3 openai_compat.py" 2>/dev/null || true
+    pkill -f "warp2api-bridge" 2>/dev/null || true
+    pkill -f "warp2api-openai" 2>/dev/null || true
 
     # 停止端口相关的进程
     log_info "清理端口进程..."
@@ -107,7 +107,7 @@ show_status() {
 
 # 显示帮助信息
 show_help() {
-    echo "Warp2Api 停止脚本"
+    echo "warp2api 停止脚本"
     echo
     echo "用法:"
     echo "  ./stop.sh          # 停止所有服务器"
@@ -115,7 +115,7 @@ show_help() {
     echo "  ./stop.sh help     # 显示此帮助信息"
     echo
     echo "功能:"
-    echo "  - 安全停止所有Warp2Api相关进程"
+    echo "  - 安全停止所有warp2api相关进程"
     echo "  - 清理端口占用"
     echo "  - 可选清理日志文件"
     echo "  - 显示详细的状态信息"
