@@ -4,11 +4,12 @@ from warp2api.infrastructure.settings.settings import STRICT_ENV, strict_auth_co
 from warp2api.infrastructure.auth.jwt_auth import acquire_anonymous_access_token
 from warp2api.observability.logging import logger, set_log_file
 from warp2api.infrastructure.monitoring.account_pool_monitor import start_monitor, stop_monitor
+from warp2api.infrastructure.token_pool.repository import get_token_repository
 
 
 async def startup_tasks() -> None:
     logger.info("=" * 60)
-    logger.info("Warp Protobuf编解码服务器启动")
+    logger.info("warp2api unified gateway starting")
     logger.info("=" * 60)
 
     try:
@@ -26,9 +27,16 @@ async def startup_tasks() -> None:
         from warp2api.infrastructure.protobuf.runtime import ensure_proto_runtime
 
         ensure_proto_runtime()
-        logger.info("✅ Protobuf运行时初始化成功")
+        logger.info("✅ Protobuf runtime initialized")
     except Exception as e:
-        logger.error(f"❌ Protobuf运行时初始化失败: {e}")
+        logger.error("❌ Protobuf runtime init failed: %s", e)
+        raise
+
+    try:
+        _ = get_token_repository()
+        logger.info("✅ Token pool repository initialized")
+    except Exception as e:
+        logger.error("❌ Token pool repository init failed: %s", e)
         raise
 
     try:
@@ -36,30 +44,30 @@ async def startup_tasks() -> None:
 
         token = get_jwt_token()
         if token and not is_token_expired(token):
-            logger.info("✅ JWT token有效")
+            logger.info("✅ JWT token is valid")
         elif not token:
-            logger.warning("⚠️ 未找到JWT token，尝试申请匿名访问token用于额度初始化…")
+            logger.warning("⚠️ JWT token missing; trying anonymous token bootstrap")
             try:
                 new_token = await acquire_anonymous_access_token()
                 if new_token:
-                    logger.info("✅ 匿名访问token申请成功")
+                    logger.info("✅ Anonymous token acquired")
                 else:
-                    logger.warning("⚠️ 匿名访问token申请失败")
+                    logger.warning("⚠️ Anonymous token acquisition failed")
             except Exception as e2:
-                logger.warning(f"⚠️ 匿名访问token申请异常: {e2}")
+                logger.warning("⚠️ Anonymous token bootstrap error: %s", e2)
         else:
-            logger.warning("⚠️ JWT token无效或已过期，建议运行: uv run refresh_jwt.py")
+            logger.warning("⚠️ JWT token expired/invalid, consider refreshing")
     except Exception as e:
-        logger.warning(f"⚠️ JWT检查失败: {e}")
+        logger.warning("⚠️ JWT check failed: %s", e)
 
     try:
         await start_monitor()
     except Exception as e:
-        logger.warning(f"⚠️ token pool monitor 启动失败: {e}")
+        logger.warning("⚠️ token pool monitor start failed: %s", e)
 
 
 async def shutdown_tasks() -> None:
     try:
         await stop_monitor()
     except Exception as e:
-        logger.warning(f"⚠️ token pool monitor 停止失败: {e}")
+        logger.warning("⚠️ token pool monitor stop failed: %s", e)

@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 REM warp2api Windows 快速启动脚本
-REM 启动两个服务器：Protobuf桥接服务器和OpenAI兼容API服务器
+REM 启动两个服务器：Protobuf桥接服务器和多协议网关服务器
 
 REM Windows CMD 不支持ANSI颜色，移除颜色定义以保持与Mac脚本一致的逻辑
 
@@ -234,9 +234,9 @@ exit /b 1
 :bridge_started
 goto :eof
 
-REM 启动OpenAI兼容API服务器
+REM 启动多协议网关服务器
 :start_openai_server
-call :log_info "启动OpenAI兼容API服务器..."
+call :log_info "启动多协议网关服务器..."
 
 REM 使用小众端口28889避免与其他应用冲突
 set OPENAI_PORT=28889
@@ -252,23 +252,23 @@ if %errorlevel%==0 (
 )
 
 REM 启动服务器（后台运行）
-start /B uv run warp2api-openai --port %OPENAI_PORT% > openai_server.log 2>&1
+start /B uv run warp2api-gateway --port %OPENAI_PORT% > gateway_server.log 2>&1
 set OPENAI_PID=%errorlevel%
 
 REM 等待服务器启动
-call :log_info "等待OpenAI兼容API服务器启动..."
+call :log_info "等待多协议网关服务器启动..."
 for /l %%i in (1,1,30) do (
     curl -s http://localhost:%OPENAI_PORT%/healthz >nul 2>&1
     if %errorlevel%==0 (
-        call :log_success "OpenAI兼容API服务器启动成功 (PID: %OPENAI_PID%)"
-        call :log_info "📍 OpenAI兼容API服务器地址: http://localhost:%OPENAI_PORT%"
+        call :log_success "多协议网关服务器启动成功 (PID: %OPENAI_PID%)"
+        call :log_info "📍 多协议网关服务器地址: http://localhost:%OPENAI_PORT%"
         goto :openai_started
     )
     timeout /t 1 >nul
 )
 
-call :log_error "OpenAI兼容API服务器启动失败"
-type openai_server.log
+call :log_error "多协议网关服务器启动失败"
+type gateway_server.log
 exit /b 1
 
 :openai_started
@@ -281,7 +281,7 @@ echo ============================================
 echo 🚀 warp2api 服务器状态
 echo ============================================
 echo 📍 Protobuf桥接服务器: http://localhost:28888
-echo 📍 OpenAI兼容API服务器: http://localhost:28889
+echo 📍 多协议网关服务器: http://localhost:28889
 echo 📍 API文档: http://localhost:28889/docs
 echo 🔗 Roocode / KiloCode baseUrl: http://127.0.0.1:28889/v1
 echo ⬇️ KilloCode 下载地址：https://app.kilocode.ai/users/sign_up?referral-code=df16bc60-be35-480f-be2c-b1c6685b6089
@@ -356,10 +356,10 @@ if "%W2A_VERBOSE%"=="true" (
     echo.
     echo 📋 实时日志监控 (按 Ctrl+C 退出):
     echo ----------------------------------------
-    echo 提示: 日志文件保存在 bridge_server.log 和 openai_server.log
+    echo 提示: 日志文件保存在 bridge_server.log 和 gateway_server.log
     echo 可以使用以下命令查看最新日志:
     echo   • type bridge_server.log
-    echo   • type openai_server.log
+    echo   • type gateway_server.log
     echo.
     echo 显示最近的日志内容:
     echo.
@@ -370,9 +370,9 @@ if "%W2A_VERBOSE%"=="true" (
         echo 日志文件尚未生成
     )
     echo.
-    echo === OpenAI兼容API服务器日志 ===
-    if exist "openai_server.log" (
-        type openai_server.log | findstr /r /c:".*" | tail -n 10 2>nul || type openai_server.log
+    echo === 多协议网关服务器日志 ===
+    if exist "gateway_server.log" (
+        type gateway_server.log | findstr /r /c:".*" | tail -n 10 2>nul || type gateway_server.log
     ) else (
         echo 日志文件尚未生成
     )

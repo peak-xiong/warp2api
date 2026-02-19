@@ -59,9 +59,9 @@ if %errorlevel%==0 (
 REM 检查端口28889
 netstat -an | find "28889" >nul 2>&1
 if %errorlevel%==0 (
-    echo ✅ OpenAI兼容API服务器 (端口28889): 运行中
+    echo ✅ 多协议网关服务器 (端口28889): 运行中
 ) else (
-    echo ❌ OpenAI兼容API服务器 (端口28889): 已停止
+    echo ❌ 多协议网关服务器 (端口28889): 已停止
 )
 
 echo ============================================
@@ -79,8 +79,8 @@ for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq python.exe" /FO CSV ^| fin
         call :log_info "终止Protobuf桥接服务器进程 (PID: %%a)"
         taskkill /PID %%a /F >nul 2>&1
     )
-    for /f "tokens=*" %%c in ('wmic process where "ProcessId=%%a" get CommandLine /value 2^>nul ^| find "warp2api-openai"') do (
-        call :log_info "终止OpenAI兼容API服务器进程 (PID: %%a)"
+    for /f "tokens=*" %%c in ('wmic process where "ProcessId=%%a" get CommandLine /value 2^>nul ^| find "warp2api-gateway"') do (
+        call :log_info "终止多协议网关服务器进程 (PID: %%a)"
         taskkill /PID %%a /F >nul 2>&1
     )
 )
@@ -100,7 +100,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| find "28888"') do (
 for /f "tokens=5" %%a in ('netstat -ano ^| find "28889"') do (
     REM 检查是否是我们自己的进程
     for /f "tokens=*" %%c in ('wmic process where "ProcessId=%%a" get CommandLine /value 2^>nul') do (
-        echo %%c | findstr /C:"warp2api-openai" >nul
+        echo %%c | findstr /C:"warp2api-gateway" >nul
         if !errorlevel!==0 (
             call :log_info "终止端口28889的服务器进程 (PID: %%a)"
             taskkill /PID %%a /F >nul 2>&1

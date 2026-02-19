@@ -51,7 +51,7 @@
 - Removed: old compatibility wrappers under `warp2protobuf/warp/*` (except active monitor)
 
 ## Operations
-- PM2 runtime uses `uv run warp2api-bridge` and `uv run warp2api-openai`
+- PM2 runtime uses `uv run warp2api-bridge` and `uv run warp2api-gateway`
 - Cross-platform start/stop scripts updated to new entrypoints.
 
 ## Validation Baseline

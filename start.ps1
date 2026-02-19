@@ -4,7 +4,7 @@
 .SYNOPSIS
     warp2api Windows PowerShell 快速启动脚本
 .DESCRIPTION
-    启动两个服务器：Protobuf桥接服务器和OpenAI兼容API服务器
+    启动两个服务器：Protobuf桥接服务器和多协议网关服务器
 .PARAMETER Verbose
     启用详细日志输出
 .PARAMETER Stop
@@ -314,9 +314,9 @@ function Start-BridgeServer {
     }
 }
 
-# 启动OpenAI兼容API服务器
+# 启动多协议网关服务器
 function Start-OpenAIServer {
-    Write-LogInfo "启动OpenAI兼容API服务器..."
+    Write-LogInfo "启动多协议网关服务器..."
 
     # 使用小众端口28889避免与其他应用冲突
     $openaiPort = 28889
@@ -330,30 +330,30 @@ function Start-OpenAIServer {
 
     # 启动服务器（后台运行）
     try {
-        $process = Start-Process -FilePath "uv" -ArgumentList "run", "warp2api-openai", "--port", $openaiPort -NoNewWindow -RedirectStandardOutput "openai_server.log" -RedirectStandardError "openai_server.log" -PassThru
+        $process = Start-Process -FilePath "uv" -ArgumentList "run", "warp2api-gateway", "--port", $openaiPort -NoNewWindow -RedirectStandardOutput "gateway_server.log" -RedirectStandardError "gateway_server.log" -PassThru
         $openaiPid = $process.Id
 
         # 等待服务器启动
-        Write-LogInfo "等待OpenAI兼容API服务器启动..."
+        Write-LogInfo "等待多协议网关服务器启动..."
         Start-Sleep -Seconds 5
 
         # 检查服务器是否启动成功
         try {
             $response = Invoke-WebRequest -Uri "http://localhost:$openaiPort/healthz" -TimeoutSec 5 -ErrorAction Stop
-            Write-LogSuccess "OpenAI兼容API服务器启动成功 (PID: $openaiPid)"
-            Write-LogInfo "📍 OpenAI兼容API服务器地址: http://localhost:$openaiPort"
+            Write-LogSuccess "多协议网关服务器启动成功 (PID: $openaiPid)"
+            Write-LogInfo "📍 多协议网关服务器地址: http://localhost:$openaiPort"
             return $true
         }
         catch {
-            Write-LogError "OpenAI兼容API服务器启动失败"
-            if (Test-Path "openai_server.log") {
-                Get-Content "openai_server.log" | Write-Host
+            Write-LogError "多协议网关服务器启动失败"
+            if (Test-Path "gateway_server.log") {
+                Get-Content "gateway_server.log" | Write-Host
             }
             return $false
         }
     }
     catch {
-        Write-LogError "启动OpenAI兼容API服务器失败: $($_.Exception.Message)"
+        Write-LogError "启动多协议网关服务器失败: $($_.Exception.Message)"
         return $false
     }
 }
@@ -365,7 +365,7 @@ function Show-Status {
     Write-Host "🚀 warp2api 服务器状态"
     Write-Host "============================================"
     Write-Host "📍 Protobuf桥接服务器: http://localhost:28888"
-    Write-Host "📍 OpenAI兼容API服务器: http://localhost:28889"
+    Write-Host "📍 多协议网关服务器: http://localhost:28889"
     Write-Host "📍 API文档: http://localhost:28889/docs"
     Write-Host "🔗 Roocode / KiloCode baseUrl: http://127.0.0.1:28889/v1"
     Write-Host "⬇️ KilloCode 下载地址：https://app.kilocode.ai/users/sign_up?referral-code=df16bc60-be35-480f-be2c-b1c6685b6089"
@@ -424,7 +424,7 @@ function Stop-Servers {
     Get-Process | Where-Object { $_.ProcessName -eq "python" -or $_.ProcessName -eq "python3" } | ForEach-Object {
         try {
             $commandLine = (Get-WmiObject Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine
-            if ($commandLine -match "warp2api-bridge|warp2api-openai") {
+            if ($commandLine -match "warp2api-bridge|warp2api-gateway") {
                 Write-LogInfo "优雅终止服务器进程 (PID: $($_.Id))"
                 Stop-Process -Id $_.Id -ErrorAction SilentlyContinue
             }
@@ -445,7 +445,7 @@ function Stop-Servers {
             $process = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
             if ($process) {
                 $commandLine = (Get-WmiObject Win32_Process -Filter "ProcessId=$($process.Id)").CommandLine
-                if ($commandLine -match "warp2api-bridge|warp2api-openai") {
+                if ($commandLine -match "warp2api-bridge|warp2api-gateway") {
                     Write-LogWarning "终止我们的服务器进程 (PID: $($process.Id))"
                     # 首先尝试优雅终止
                     Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
@@ -472,7 +472,7 @@ function Stop-Servers {
             $process = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
             if ($process) {
                 $commandLine = (Get-WmiObject Win32_Process -Filter "ProcessId=$($process.Id)").CommandLine
-                if ($commandLine -match "warp2api-bridge|warp2api-openai") {
+                if ($commandLine -match "warp2api-bridge|warp2api-gateway") {
                     Write-LogWarning "终止我们的服务器进程 (PID: $($process.Id))"
                     # 首先尝试优雅终止
                     Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
@@ -522,7 +522,7 @@ function Main {
 
     $openaiStarted = Start-OpenAIServer
     if (-not $openaiStarted) {
-        Write-LogError "OpenAI兼容API服务器启动失败，退出"
+        Write-LogError "多协议网关服务器启动失败，退出"
         exit 1
     }
 
@@ -539,7 +539,7 @@ function Main {
 
         # PowerShell 中可以同时监控多个日志文件
         try {
-            Get-Content "bridge_server.log", "openai_server.log" -Wait -ErrorAction Stop
+            Get-Content "bridge_server.log", "gateway_server.log" -Wait -ErrorAction Stop
         }
         catch {
             Write-Host "日志监控已停止"

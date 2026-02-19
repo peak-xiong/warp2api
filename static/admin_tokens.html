@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>warp2api - Token Control</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #e2e8f0;
+      --brand: #0ea5e9;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --chip: #e0f2fe;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Inter","SF Pro Text","Segoe UI",sans-serif; color: var(--ink); background: radial-gradient(circle at 10% -20%, #dbeafe, transparent 40%), var(--bg); }
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 18px 40px; }
+    .hero { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .hero h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+    .hero p { margin: 6px 0 0; color: var(--muted); }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; box-shadow: 0 10px 30px rgba(2,6,23,0.05); }
+    .toolbar { display: grid; grid-template-columns: 1.6fr 0.7fr 0.7fr 0.7fr 0.7fr; gap: 10px; margin-bottom: 12px; }
+    input, textarea, button, select {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font: inherit;
+      background: #fff;
+    }
+    textarea { width: 100%; min-height: 110px; resize: vertical; }
+    button {
+      background: linear-gradient(135deg, #0284c7, #0ea5e9);
+      color: #fff;
+      cursor: pointer;
+      border: none;
+      font-weight: 600;
+    }
+    button.secondary {
+      background: #fff;
+      color: #0f172a;
+      border: 1px solid var(--line);
+    }
+    .cards { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .card { background: #f8fafc; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+    .card .k { font-size: 12px; color: var(--muted); }
+    .card .v { font-size: 20px; font-weight: 700; margin-top: 3px; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--chip); color: #0369a1; }
+    .status-ok { color: var(--ok); }
+    .status-bad { color: var(--bad); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .log { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #334155; white-space: pre-wrap; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; vertical-align: middle; }
+    th { background: #f8fafc; color: #334155; font-weight: 600; }
+    .chip { font-size: 12px; padding: 3px 8px; border-radius: 999px; display: inline-block; }
+    .chip.active { background: #dcfce7; color: #166534; }
+    .chip.cooldown { background: #fef3c7; color: #92400e; }
+    .chip.blocked, .chip.quota_exhausted, .chip.disabled { background: #fee2e2; color: #991b1b; }
+    .row-actions { display: flex; gap: 6px; }
+    .row-actions button { padding: 6px 8px; font-size: 12px; border-radius: 8px; }
+    .row-actions button.secondary { padding: 5px 8px; }
+    @media (max-width: 980px) {
+      .toolbar { grid-template-columns: 1fr 1fr; }
+      .cards { grid-template-columns: repeat(3, minmax(110px, 1fr)); }
+      .grid2 { grid-template-columns: 1fr; }
+      .hero { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div>
+        <h1>Token 控制台</h1>
+        <p>账号池状态、保活结果、路由可用性一体化查看</p>
+      </div>
+      <div class="badge">/admin/tokens/ui</div>
+    </div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <input id="adminToken" type="password" placeholder="ADMIN_TOKEN（若 local/off 模式可留空）">
+        <button id="btnRefreshAll">刷新全部</button>
+        <button class="secondary" id="btnLoad">刷新列表</button>
+        <button class="secondary" id="btnStats">统计</button>
+        <button class="secondary" id="btnHealth">健康</button>
+      </div>
+
+      <div class="cards">
+        <div class="card"><div class="k">总数</div><div class="v" id="cTotal">0</div></div>
+        <div class="card"><div class="k">可用</div><div class="v status-ok" id="cAvail">0</div></div>
+        <div class="card"><div class="k">冷却</div><div class="v" id="cCooldown">0</div></div>
+        <div class="card"><div class="k">封禁</div><div class="v status-bad" id="cBlocked">0</div></div>
+        <div class="card"><div class="k">额度耗尽</div><div class="v status-bad" id="cQuota">0</div></div>
+        <div class="card"><div class="k">可接流量</div><div class="v" id="cReady">no</div></div>
+      </div>
+
+      <div class="grid2">
+        <div class="panel">
+          <div style="font-weight:600;margin-bottom:8px;">批量导入</div>
+          <textarea id="batchTokens" placeholder="每行一个 refresh token"></textarea>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button id="btnImport">导入</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div style="font-weight:600;margin-bottom:8px;">状态输出</div>
+          <pre id="console" class="log">等待操作...</pre>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Label</th>
+            <th>Preview</th>
+            <th>Status</th>
+            <th>Error</th>
+            <th>Cooldown</th>
+            <th>Last Success</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="tokenRows"></tbody>
+      </table>
+    </div>
+  </div>
+  <script src="/assets/js/admin-tokens.js"></script>
+</body>
+</html>

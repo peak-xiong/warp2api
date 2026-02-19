@@ -5,13 +5,12 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-import httpx
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from warp2api.adapters.common.logging import logger
 from warp2api.adapters.common.schemas import ChatCompletionsRequest, ChatMessage
-from warp2api.application.services.bridge_access import BRIDGE_BASE_URL, authenticate_request, initialize_once
+from warp2api.application.services.gateway_access import authenticate_request, initialize_once
 from warp2api.application.services.chat_gateway_support import (
     attach_user_and_tools_to_inputs,
     extract_tool_call_deltas,
@@ -23,6 +22,8 @@ from warp2api.application.services.chat_gateway_support import (
     segments_to_text,
     stream_openai_sse,
 )
+from warp2api.application.services.warp_request_service import execute_warp_packet
+from warp2api.infrastructure.settings.settings import CLIENT_VERSION, OS_VERSION
 from warp2api.domain.models.model_catalog import get_model_config
 
 
@@ -135,21 +136,17 @@ async def execute_chat_completions(
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
 
-    try:
-        async with httpx.AsyncClient(trust_env=True) as client:
-            resp = await client.post(
-                f"{BRIDGE_BASE_URL}/api/warp/send_stream",
-                json={"json_data": packet, "message_type": "warp.multi_agent.v1.Request"},
-                timeout=httpx.Timeout(connect=5.0, read=180.0, write=30.0, pool=30.0),
-            )
-
-        if resp.status_code != 200:
-            raise HTTPException(resp.status_code, f"bridge_error: {resp.text}")
-        bridge_resp = resp.json()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(502, f"bridge_unreachable: {exc}")
+    exec_ctx = await execute_warp_packet(
+        actual_data=packet,
+        message_type="warp.multi_agent.v1.Request",
+        timeout_seconds=90,
+        client_version=CLIENT_VERSION,
+        os_version=OS_VERSION,
+    )
+    bridge_resp = exec_ctx["result_raw"]
+    if not bridge_resp.get("ok"):
+        status_code = int(bridge_resp.get("status_code") or 502)
+        raise HTTPException(status_code, f"warp_error: {bridge_resp.get('error')}")
 
     try:
         state.conversation_id = bridge_resp.get("conversation_id") or state.conversation_id

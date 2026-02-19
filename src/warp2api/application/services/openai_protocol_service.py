@@ -5,11 +5,9 @@ import time
 import uuid
 from typing import Any, Dict, List
 
-import httpx
-from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
-from warp2api.application.services.bridge_access import BRIDGE_BASE_URL
+from warp2api.domain.models.model_catalog import get_all_unique_models
 
 
 def to_openai_model_list(payload: Any) -> Dict[str, Any]:
@@ -37,12 +35,8 @@ def to_openai_model_list(payload: Any) -> Dict[str, Any]:
     return {"object": "list", "data": out}
 
 
-async def fetch_models_from_bridge() -> Dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10.0, trust_env=True) as client:
-        resp = await client.get(f"{BRIDGE_BASE_URL}/v1/models")
-    if resp.status_code != 200:
-        raise HTTPException(resp.status_code, f"bridge_error: {resp.text}")
-    return to_openai_model_list(resp.json())
+async def fetch_models() -> Dict[str, Any]:
+    return to_openai_model_list(get_all_unique_models())
 
 
 def extract_responses_input_text(inp: Any) -> str:

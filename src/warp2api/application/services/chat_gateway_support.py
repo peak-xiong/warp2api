@@ -7,12 +7,12 @@ import time
 import uuid
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-import httpx
 from pydantic import BaseModel
 
 from warp2api.adapters.common.logging import logger
 from warp2api.adapters.common.schemas import ChatMessage
-from warp2api.application.services.bridge_access import BRIDGE_BASE_URL
+from warp2api.application.services.warp_request_service import execute_warp_packet
+from warp2api.infrastructure.settings.settings import CLIENT_VERSION, OS_VERSION
 
 
 def _get(d: Dict[str, Any], *names: str) -> Any:
@@ -436,55 +436,40 @@ def _chunk(
 
 
 async def _stream_once(
-    client: httpx.AsyncClient,
     packet: Dict[str, Any],
     completion_id: str,
     created_ts: int,
     model_id: str,
 ) -> AsyncGenerator[str, None]:
     tool_calls_emitted = False
-    current = ""
-    async with client.stream(
-        "POST",
-        f"{BRIDGE_BASE_URL}/api/warp/send_stream_sse",
-        headers={"accept": "text/event-stream"},
-        json={"json_data": packet, "message_type": "warp.multi_agent.v1.Request"},
-    ) as response:
-        if response.status_code != 200:
-            error_text = await response.aread()
-            error_content = error_text.decode("utf-8") if error_text else ""
-            raise RuntimeError(f"bridge HTTP {response.status_code}: {error_content}")
 
-        async for line in response.aiter_lines():
-            if line.startswith("data:"):
-                payload = line[5:].strip()
-                if not payload:
-                    continue
-                if payload == "[DONE]":
-                    break
-                current += payload
-                continue
-            if line.strip() != "" or not current:
-                continue
-            try:
-                ev = json.loads(current)
-            except Exception:
-                current = ""
-                continue
-            current = ""
-            event_data = (ev or {}).get("parsed_data") or {}
+    exec_ctx = await execute_warp_packet(
+        actual_data=packet,
+        message_type="warp.multi_agent.v1.Request",
+        timeout_seconds=90,
+        client_version=CLIENT_VERSION,
+        os_version=OS_VERSION,
+    )
+    result_raw = exec_ctx["result_raw"]
 
-            for text in extract_text_deltas(event_data):
-                yield f"data: {json.dumps(_chunk(completion_id, created_ts, model_id, {'content': text}), ensure_ascii=False)}\n\n"
+    if not result_raw.get("ok"):
+        raise RuntimeError(f"warp HTTP {result_raw.get('status_code')}: {result_raw.get('error')}")
 
-            tcs = extract_tool_call_deltas(event_data)
-            for tc in tcs:
-                tool_calls_emitted = True
-                yield f"data: {json.dumps(_chunk(completion_id, created_ts, model_id, {'tool_calls': [{'index': 0, **tc}]}), ensure_ascii=False)}\n\n"
+    parsed_events = result_raw.get("parsed_events", []) or []
+    for ev in parsed_events:
+        event_data = ev.get("parsed_data") or {}
 
-            if is_finished_event(event_data):
-                finish_reason = "tool_calls" if tool_calls_emitted else "stop"
-                yield f"data: {json.dumps(_chunk(completion_id, created_ts, model_id, {}, finish_reason=finish_reason), ensure_ascii=False)}\n\n"
+        for text in extract_text_deltas(event_data):
+            yield f"data: {json.dumps(_chunk(completion_id, created_ts, model_id, {'content': text}), ensure_ascii=False)}\n\n"
+
+        tcs = extract_tool_call_deltas(event_data)
+        for tc in tcs:
+            tool_calls_emitted = True
+            yield f"data: {json.dumps(_chunk(completion_id, created_ts, model_id, {'tool_calls': [{'index': 0, **tc}]}), ensure_ascii=False)}\n\n"
+
+        if is_finished_event(event_data):
+            finish_reason = "tool_calls" if tool_calls_emitted else "stop"
+            yield f"data: {json.dumps(_chunk(completion_id, created_ts, model_id, {}, finish_reason=finish_reason), ensure_ascii=False)}\n\n"
 
     yield "data: [DONE]\n\n"
 
@@ -498,23 +483,8 @@ async def stream_openai_sse(
     try:
         first = _chunk(completion_id, created_ts, model_id, {"role": "assistant"})
         yield f"data: {json.dumps(first, ensure_ascii=False)}\n\n"
-
-        timeout = httpx.Timeout(60.0)
-        async with httpx.AsyncClient(http2=True, timeout=timeout, trust_env=True) as client:
-            try:
-                async for part in _stream_once(client, packet, completion_id, created_ts, model_id):
-                    yield part
-                return
-            except RuntimeError as exc:
-                if "HTTP 429" not in str(exc) and " 429:" not in str(exc):
-                    raise
-                try:
-                    resp = await client.post(f"{BRIDGE_BASE_URL}/api/auth/refresh", timeout=10.0)
-                    logger.warning("[Gateway] Bridge returned 429, refresh attempted -> HTTP %s", resp.status_code)
-                except Exception as refresh_exc:
-                    logger.warning("[Gateway] refresh after 429 failed: %s", refresh_exc)
-                async for part in _stream_once(client, packet, completion_id, created_ts, model_id):
-                    yield part
+        async for part in _stream_once(packet, completion_id, created_ts, model_id):
+            yield part
     except Exception as exc:
         logger.error("[Gateway] Stream processing failed: %s", exc)
         error_chunk = {
@@ -527,4 +497,3 @@ async def stream_openai_sse(
         }
         yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
-

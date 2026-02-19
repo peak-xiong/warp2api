@@ -8,7 +8,6 @@ Keep external APIs stable while making internals maintainable and testable.
   - `src/warp2api/*`
   - unified launcher entrypoints are available via `pyproject` scripts.
 - Runtime primary entry modules:
-  - `src/warp2api/app/bridge_runtime.py`
   - `src/warp2api/app/openai_runtime.py`
 - Phase 3 migration status:
   - Warp transport/event parsing/minimal request/token-rotation core moved into `src/warp2api`.
@@ -18,7 +17,7 @@ Keep external APIs stable while making internals maintainable and testable.
 ## Layered Code Paths
 
 ### 1) Presentation Layer
-- `src/warp2api/app/bridge_app.py` (app assembly)
+- `src/warp2api/adapters/openai/app.py` (unified app assembly)
 - `src/warp2api/api/routes/codec_routes.py`
 - `src/warp2api/api/routes/auth_routes.py`
 - `src/warp2api/api/routes/model_routes.py`
@@ -69,6 +68,12 @@ Keep external APIs stable while making internals maintainable and testable.
 - `server.py`
 - `openai_compat.py`
 - Both are lightweight launchers and do not contain fallback/compat routing logic.
+
+## Non-Negotiable Rule
+- Single upstream transport path only:
+  - `application/services/token_rotation_service.py::send_protobuf_with_rotation`
+- OpenAI/Anthropic/Gemini adapters must converge to this path.
+- Do not reintroduce relay chains such as local `httpx -> /api/warp/send_stream`.
 
 ## OpenAI Adapter Side
 - `src/warp2api/application/services/chat_gateway_service.py` unified chat orchestration

@@ -16,7 +16,7 @@ for handler in _logger.handlers[:]:
     _logger.removeHandler(handler)
 
 file_handler = RotatingFileHandler(
-    LOG_DIR / "openai_compat.log",
+    LOG_DIR / "gateway_compat.log",
     maxBytes=5 * 1024 * 1024,
     backupCount=3,
     encoding="utf-8",
@@ -36,4 +36,3 @@ _logger.addHandler(file_handler)
 _logger.addHandler(console_handler)
 
 logger = _logger
-

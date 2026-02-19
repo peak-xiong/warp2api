@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from warp2api.adapters.common.schemas import ChatCompletionsRequest
-from warp2api.application.services.bridge_access import authenticate_request
+from warp2api.application.services.gateway_access import authenticate_request
 from warp2api.application.services.chat_gateway_service import execute_chat_completions
+from warp2api.application.services.token_pool_service import get_token_pool_service
 from warp2api.application.services.openai_protocol_service import (
     completion_to_responses_payload,
     extract_responses_input_text,
-    fetch_models_from_bridge,
+    fetch_models,
     stream_chat_to_responses,
     to_openai_model_list,
 )
@@ -25,17 +27,30 @@ def _to_openai_model_list(payload):
 
 @router.get("/")
 def root():
-    return {"service": "OpenAI Chat Completions (Warp bridge) - Streaming", "status": "ok"}
+    return {"service": "warp2api Multi-Protocol Gateway", "status": "ok"}
 
 
 @router.get("/healthz")
-def health_check():
-    return {"status": "ok", "service": "OpenAI Chat Completions (Warp bridge) - Streaming"}
+async def health_check():
+    svc = get_token_pool_service()
+    readiness = svc.readiness()
+    return {
+        "status": "ok",
+        "service": "warp2api Multi-Protocol Gateway",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "streaming": {
+            "openai_chat_completions": True,
+            "openai_responses": True,
+            "anthropic_messages": True,
+            "gemini_stream_generate_content": True,
+        },
+        "token_pool_readiness": readiness,
+    }
 
 
 @router.get("/v1/models")
 async def list_models():
-    return await fetch_models_from_bridge()
+    return await fetch_models()
 
 
 @router.post("/v1/chat/completions")

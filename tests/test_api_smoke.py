@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from warp2api.app.bridge import app
+from warp2api.app.openai import openai_app as app
 
 
 client = TestClient(app)

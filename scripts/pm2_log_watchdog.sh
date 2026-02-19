@@ -50,11 +50,9 @@ echo "[watchdog] started at $(date '+%F %T'), interval=${INTERVAL}s"
 collect_window() {
   local files=(
     "$LOG_DIR/warp_server.log"
-    "$LOG_DIR/openai_compat.log"
-    "$LOG_DIR/pm2_warp_bridge_err.log"
-    "$LOG_DIR/pm2_warp_openai_err.log"
-    "$LOG_DIR/pm2_warp_bridge_out.log"
-    "$LOG_DIR/pm2_warp_openai_out.log"
+    "$LOG_DIR/gateway_compat.log"
+    "$LOG_DIR/pm2_warp_gateway_err.log"
+    "$LOG_DIR/pm2_warp_gateway_out.log"
   )
 
   for f in "${files[@]}"; do
@@ -82,7 +80,7 @@ while true; do
     HIT_LINES="$(printf '%s\n' "$WINDOW_CONTENT" | rg -n "HTTP 403|403 Forbidden|HTTP 429|No remaining quota|No AI requests remaining|token|JWT|dns_lookup_failed|ConnectError|timed out|Connection refused|proxy|WARP_TRUST_ENV enabled" -S || true)"
     if [ -n "$HIT_LINES" ]; then
       REASON="$(summarize_reason "$WINDOW_CONTENT")"
-      echo "[watchdog][$(date '+%F %T')] files=warp_server.log,openai_compat.log,pm2_warp_*.log"
+      echo "[watchdog][$(date '+%F %T')] files=warp_server.log,gateway_compat.log,pm2_warp_gateway_*.log"
       echo "[watchdog] $REASON"
       echo "[watchdog] recent-hit-lines:"
       printf '%s\n' "$HIT_LINES" | tail -n 12

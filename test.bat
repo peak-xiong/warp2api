@@ -62,7 +62,7 @@ if exist ".env" (
 
 curl -s http://localhost:28889/healthz >nul 2>&1
 if %errorlevel% neq 0 (
-    call :log_error "OpenAI兼容API服务器 (28889) 未响应"
+    call :log_error "多协议网关服务器 (28889) 未响应"
     if "%W2A_VERBOSE%"=="true" (
         echo 请先运行 start.bat 启动服务器
     )
@@ -70,7 +70,7 @@ if %errorlevel% neq 0 (
 )
 
 if "%W2A_VERBOSE%"=="true" (
-    echo ✅ OpenAI兼容API服务器 (28889) 运行正常
+    echo ✅ 多协议网关服务器 (28889) 运行正常
 )
 
 REM 测试API接口

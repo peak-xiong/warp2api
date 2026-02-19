@@ -10,7 +10,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from warp2api.adapters.openai.packets import packet_template
+from warp2api.application.services.chat_gateway_support import packet_template
 from warp2api.infrastructure.protobuf.utils import dict_to_protobuf_bytes
 from warp2api.application.services.token_rotation_service import send_protobuf_with_rotation
 

@@ -316,7 +316,7 @@ warp2api/
   - `STRICT_ENV` 与配置安全校验生效
 - Phase 1：已完成（骨架）
   - 已引入 `src/warp2api` 包结构
-  - 已提供统一启动入口：`warp2api` / `warp2api-bridge` / `warp2api-openai`
+  - 已提供统一启动入口：`warp2api` / `warp2api-bridge` / `warp2api-gateway`
   - 旧入口保持兼容：`server.py`、`openai_compat.py`（已降级为 thin wrapper）
 - Phase 2：已部分完成
   - 运行时主实现已迁移到：

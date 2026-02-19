@@ -17,14 +17,13 @@ dependencies = [
     "python-dotenv",
     "websockets>=15.0.1",
     "openai>=1.106.0",
+    "cryptography>=45.0.0",
 ]
 
 [project.scripts]
-warp-server = "warp2api.app.bridge_runtime:main"
-warp-openai = "warp2api.app.openai_runtime:main"
+warp-gateway = "warp2api.app.openai_runtime:main"
 warp2api = "warp2api.app.main:main"
-warp2api-bridge = "warp2api.app.bridge:main"
-warp2api-openai = "warp2api.app.openai:main"
+warp2api-gateway = "warp2api.app.openai:main"
 warp2api-proto = "warp2api.tools.proto_sync:main"
 
 [tool.setuptools]

@@ -56,10 +56,10 @@ fi
 
 if curl -s http://localhost:28889/healthz >/dev/null 2>&1; then
     if [ "$VERBOSE" = "true" ]; then
-        echo -e "${GREEN}✅ OpenAI兼容API服务器 (28889) 运行正常${NC}"
+        echo -e "${GREEN}✅ 多协议网关服务器 (28889) 运行正常${NC}"
     fi
 else
-    log_error "OpenAI兼容API服务器 (28889) 未响应"
+    log_error "多协议网关服务器 (28889) 未响应"
     if [ "$VERBOSE" = "true" ]; then
         echo -e "${YELLOW}请先运行 ./start.sh 启动服务器${NC}"
     fi

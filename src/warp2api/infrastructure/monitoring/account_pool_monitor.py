@@ -10,80 +10,71 @@ health snapshots for API diagnostics.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import time
-from dataclasses import dataclass, asdict
 from typing import Dict, Optional
 
-from warp2api.infrastructure.auth.jwt_auth import get_refresh_token_candidates, refresh_jwt_token
+from warp2api.application.services.token_pool_service import get_token_pool_service
+from warp2api.infrastructure.token_pool.repository import get_token_repository
 from warp2api.observability.logging import logger
-
-
-@dataclass
-class TokenHealth:
-    token_preview: str
-    token_id: str
-    healthy: bool = False
-    last_checked_at: float = 0.0
-    last_success_at: float = 0.0
-    last_error: str = ""
-    consecutive_failures: int = 0
-    latency_ms: int = 0
 
 
 _MONITOR_TASK: Optional[asyncio.Task] = None
 _STOP_EVENT: Optional[asyncio.Event] = None
-_HEALTH: Dict[str, TokenHealth] = {}
 
 
 def _monitor_interval_seconds() -> int:
-    raw = os.getenv("WARP_POOL_HEALTH_INTERVAL_SECONDS", "120")
+    # Default hourly keepalive refresh.
+    raw = (
+        os.getenv("WARP_POOL_REFRESH_INTERVAL_SECONDS")
+        or os.getenv("WARP_POOL_HEALTH_INTERVAL_SECONDS")
+        or "3600"
+    )
     try:
-        return max(15, int(raw))
+        return max(60, int(raw))
     except Exception:
-        return 120
+        return 3600
 
 
-def _token_preview(token: str) -> str:
-    if not token:
-        return ""
-    if len(token) <= 10:
-        return token[:2] + "***"
-    return f"{token[:6]}...{token[-4:]}"
-
-
-def _token_id(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
-
-
-async def _check_one_token(token: str) -> None:
-    token_key = _token_id(token)
-    item = _HEALTH.get(token_key) or TokenHealth(token_preview=_token_preview(token), token_id=token_key)
+async def _check_one_token(token_id: int, token_preview: str) -> None:
+    repo = get_token_repository()
+    prev = repo.get_health_snapshot(token_id) or {}
     start = time.monotonic()
 
     try:
-        data = await refresh_jwt_token(refresh_token_override=token)
+        svc = get_token_pool_service()
+        result = await svc.health_check_token(token_id, actor="monitor")
         elapsed = int((time.monotonic() - start) * 1000)
-        access = str((data or {}).get("access_token") or (data or {}).get("id_token") or "").strip()
-        if not access:
-            raise RuntimeError("refresh returned empty access token")
+        ok = bool((result or {}).get("success"))
+        if not ok:
+            raise RuntimeError("token health check failed")
 
-        item.healthy = True
-        item.last_checked_at = time.time()
-        item.last_success_at = item.last_checked_at
-        item.last_error = ""
-        item.consecutive_failures = 0
-        item.latency_ms = elapsed
+        now_ts = time.time()
+        repo.upsert_health_snapshot(
+            token_id=token_id,
+            token_preview=token_preview,
+            healthy=True,
+            last_checked_at=now_ts,
+            last_success_at=now_ts,
+            last_error="",
+            consecutive_failures=0,
+            latency_ms=elapsed,
+        )
     except Exception as exc:
         elapsed = int((time.monotonic() - start) * 1000)
-        item.healthy = False
-        item.last_checked_at = time.time()
-        item.last_error = str(exc)[:240]
-        item.consecutive_failures += 1
-        item.latency_ms = elapsed
-
-    _HEALTH[token_key] = item
+        now_ts = time.time()
+        last_success_at = float(prev.get("last_success_at") or 0.0)
+        consecutive_failures = int(prev.get("consecutive_failures") or 0) + 1
+        repo.upsert_health_snapshot(
+            token_id=token_id,
+            token_preview=token_preview,
+            healthy=False,
+            last_checked_at=now_ts,
+            last_success_at=last_success_at,
+            last_error=str(exc)[:240],
+            consecutive_failures=consecutive_failures,
+            latency_ms=elapsed,
+        )
 
 
 async def _run_monitor(stop_event: asyncio.Event) -> None:
@@ -92,9 +83,16 @@ async def _run_monitor(stop_event: asyncio.Event) -> None:
 
     while not stop_event.is_set():
         try:
-            tokens = get_refresh_token_candidates()
+            svc = get_token_pool_service()
+            tokens = svc.list_tokens()
             if tokens:
-                await asyncio.gather(*(_check_one_token(t) for t in tokens))
+                await asyncio.gather(
+                    *(
+                        _check_one_token(int(t["id"]), str(t.get("token_preview") or ""))
+                        for t in tokens
+                        if str(t.get("status") or "") in {"active", "cooldown", "quota_exhausted"}
+                    )
+                )
             else:
                 logger.warning("[token_pool] no refresh tokens found for health check")
         except Exception as exc:
@@ -135,11 +133,12 @@ async def stop_monitor() -> None:
 
 
 def get_monitor_status() -> Dict[str, object]:
+    repo = get_token_repository()
     task_running = bool(_MONITOR_TASK and not _MONITOR_TASK.done())
-    items = [asdict(v) for v in _HEALTH.values()]
+    items = repo.list_health_snapshots()
     items.sort(key=lambda x: x.get("token_preview", ""))
 
-    healthy = sum(1 for x in items if x.get("healthy"))
+    healthy = sum(1 for x in items if bool(x.get("healthy")))
     unhealthy = len(items) - healthy
 
     return {

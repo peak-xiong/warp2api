@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# warp2api 一键启动脚本 (修复版)
-# 启动两个服务器：Protobuf桥接服务器和OpenAI兼容API服务器
+# warp2api 一键启动脚本 (统一网关)
+# 仅启动 OpenAI 兼容 API 服务器
 
 set -e  # 遇到错误立即退出
 
@@ -129,43 +129,9 @@ check_network() {
     fi
 }
 
-# 启动Protobuf桥接服务器
-start_bridge_server() {
-    log_info "启动Protobuf桥接服务器..."
-
-    # 使用小众端口28888避免与其他应用冲突
-    BRIDGE_PORT=28888
-    
-    # 检查端口是否被占用
-    if lsof -Pi :$BRIDGE_PORT -sTCP:LISTEN -t >/dev/null ; then
-        log_warning "端口${BRIDGE_PORT}已被占用，尝试终止现有进程..."
-        lsof -ti:$BRIDGE_PORT | xargs kill -9 2>/dev/null || true
-        sleep 2
-    fi
-
-    # 启动服务器（后台运行）
-    nohup uv run warp2api-bridge --port $BRIDGE_PORT > bridge_server.log 2>&1 &
-    BRIDGE_PID=$!
-
-    # 等待服务器启动
-    log_info "等待Protobuf桥接服务器启动..."
-    for i in {1..30}; do
-        if curl -s http://localhost:$BRIDGE_PORT/healthz >/dev/null 2>&1; then
-            log_success "Protobuf桥接服务器启动成功 (PID: $BRIDGE_PID)"
-            log_info "📍 Protobuf桥接服务器地址: http://localhost:$BRIDGE_PORT"
-            return 0
-        fi
-        sleep 1
-    done
-
-    log_error "Protobuf桥接服务器启动失败"
-    cat bridge_server.log
-    exit 1
-}
-
-# 启动OpenAI兼容API服务器
+# 启动多协议网关服务器
 start_openai_server() {
-    log_info "启动OpenAI兼容API服务器..."
+    log_info "启动多协议网关服务器..."
 
     # 使用小众端口28889避免与其他应用冲突
     OPENAI_PORT=28889
@@ -178,22 +144,22 @@ start_openai_server() {
     fi
 
     # 启动服务器（后台运行）
-    nohup uv run warp2api-openai --port $OPENAI_PORT > openai_server.log 2>&1 &
+    nohup uv run warp2api-gateway --port $OPENAI_PORT > gateway_server.log 2>&1 &
     OPENAI_PID=$!
 
     # 等待服务器启动
-    log_info "等待OpenAI兼容API服务器启动..."
+    log_info "等待多协议网关服务器启动..."
     for i in {1..30}; do
         if curl -s http://localhost:$OPENAI_PORT/healthz >/dev/null 2>&1; then
-            log_success "OpenAI兼容API服务器启动成功 (PID: $OPENAI_PID)"
-            log_info "📍 OpenAI兼容API服务器地址: http://localhost:$OPENAI_PORT"
+            log_success "多协议网关服务器启动成功 (PID: $OPENAI_PID)"
+            log_info "📍 多协议网关服务器地址: http://localhost:$OPENAI_PORT"
             return 0
         fi
         sleep 1
     done
 
-    log_error "OpenAI兼容API服务器启动失败"
-    cat openai_server.log
+    log_error "多协议网关服务器启动失败"
+    cat gateway_server.log
     exit 1
 }
 
@@ -203,8 +169,7 @@ show_status() {
     echo "=========================================="
     echo "🚀 warp2api 服务器状态"
     echo "=========================================="
-    echo "📍 Protobuf桥接服务器: http://localhost:28888"
-    echo "📍 OpenAI兼容API服务器: http://localhost:28889"
+    echo "📍 多协议网关服务器: http://localhost:28889"
     echo "📍 API文档: http://localhost:28889/docs"
     echo "🔗 Roocode / KiloCode baseUrl: http://127.0.0.1:28889/v1"
     echo "⬇️ KilloCode 下载地址：https://app.kilocode.ai/users/sign_up?referral-code=df16bc60-be35-480f-be2c-b1c6685b6089"
@@ -247,11 +212,9 @@ stop_servers() {
     log_info "停止所有服务器..."
 
     # 停止所有相关进程
-    pkill -f "warp2api-bridge" 2>/dev/null || true
-    pkill -f "warp2api-openai" 2>/dev/null || true
+    pkill -f "warp2api-gateway" 2>/dev/null || true
 
     # 清理可能的僵尸进程（使用小众端口）
-    lsof -ti:28888 | xargs kill -9 2>/dev/null || true
     lsof -ti:28889 | xargs kill -9 2>/dev/null || true
 
     log_success "所有服务器已停止"
@@ -313,7 +276,7 @@ auto_configure() {
 # 主函数
 main() {
     echo "=========================================="
-    echo "🚀 warp2api 一键启动脚本 (修复版)"
+    echo "🚀 warp2api 一键启动脚本 (统一网关)"
     echo "=========================================="
 
     # 检查命令行参数
@@ -331,7 +294,6 @@ main() {
     check_network
 
     # 启动服务器
-    start_bridge_server
     start_openai_server
 
     # 显示状态信息
@@ -346,8 +308,7 @@ main() {
         echo "📋 实时日志监控 (按 Ctrl+C 退出):"
         echo "----------------------------------------"
 
-        # 监控两个服务器的日志
-        tail -f bridge_server.log openai_server.log &
+        tail -f gateway_server.log &
         TAIL_PID=$!
     else
         log_success "warp2api启动完成！服务器正在后台运行。"
