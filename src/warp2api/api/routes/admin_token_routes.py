@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 
 from warp2api.api.admin_auth import require_admin_auth
 from warp2api.application.services.token_pool_service import get_token_pool_service
@@ -33,11 +33,6 @@ async def admin_tokens_page():
     if not file_path.exists():
         return HTMLResponse("admin_tokens.html not found", status_code=404)
     return HTMLResponse(file_path.read_text(encoding="utf-8"))
-
-
-@router.get("/admin/tokens/ui")
-async def admin_tokens_ui_redirect():
-    return RedirectResponse(url="/admin/tokens", status_code=307)
 
 
 @router.get(f"{ADMIN_API_PREFIX}")

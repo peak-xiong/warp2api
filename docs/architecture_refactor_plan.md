@@ -51,8 +51,8 @@
 - Removed: old compatibility wrappers under `warp2protobuf/warp/*` (except active monitor)
 
 ## Operations
-- PM2 runtime uses `uv run warp2api-bridge` and `uv run warp2api-gateway`
-- Cross-platform start/stop scripts updated to new entrypoints.
+- PM2 runtime uses `uv run warp2api-gateway`
+- Runtime entry is unified through `pyproject.toml` scripts.
 
 ## Validation Baseline
 - Test suite: `23 passed`

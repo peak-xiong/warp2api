@@ -53,14 +53,11 @@ def test_admin_tokens_requires_admin_token(monkeypatch):
     assert r.status_code == 503
 
 
-def test_admin_tokens_ui_route_not_captured_by_token_id():
+def test_admin_tokens_page_route():
     client = TestClient(openai_app)
-    r = client.get("/admin/tokens/ui", follow_redirects=False)
-    assert r.status_code == 307
-    assert r.headers.get("location") == "/admin/tokens"
-    r2 = client.get("/admin/tokens")
-    assert r2.status_code == 200
-    assert "Token 控制台" in r2.text
+    r = client.get("/admin/tokens")
+    assert r.status_code == 200
+    assert "Token 控制台" in r.text
 
 
 def test_admin_tokens_local_mode_without_admin_token(monkeypatch):

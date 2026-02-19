@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "warp2api"
 version = "0.1.0"
-description = "Warp AI service to OpenAI API compatibility bridge"
+description = "Warp AI multi-protocol gateway"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -21,7 +21,6 @@ dependencies = [
 ]
 
 [project.scripts]
-warp-gateway = "warp2api.app.openai_runtime:main"
 warp2api = "warp2api.app.main:main"
 warp2api-gateway = "warp2api.app.openai:main"
 warp2api-proto = "warp2api.tools.proto_sync:main"

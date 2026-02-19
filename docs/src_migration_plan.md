@@ -69,7 +69,7 @@
 | P0 | 全局 `STATE` 会话共享 | 并发串会话、上下文污染 | 移除 `protobuf2openai/state.py` 的全局会话字段，改为请求级上下文或 session store(含TTL) | 并发测试（2+会话）100%无串线 |
 | P0 | async 链路同步 `requests` | 阻塞事件循环、吞吐下降 | `router.py/bridge.py` 全改 `httpx.AsyncClient`，统一 client 工厂 | 压测下 p95 延迟下降且无阻塞告警 |
 | P0 | `REFRESH_TOKEN_B64` 硬编码 fallback | 安全审计风险、行为不可控 | 引入 `STRICT_ENV`（默认生产开启），禁用硬编码 fallback | 生产配置缺失时启动失败并给出明确报错 |
-| P1 | `server.py` 过大且职责混合 | 维护困难、易回归 | 拆为 `app/main.py` + `app/bootstrap.py` + routes | `server.py` ≤ 150 行（兼容入口） |
+| P1 | 启动入口职责混合 | 维护困难、易回归 | 统一到 `src/warp2api/app/*` 启动编排 | 仅保留 `pyproject` 脚本入口 |
 | P1 | `server_message_data` 重复实现 | 行为漂移风险 | 仅保留 `core/server_message_data.py` 实现，删除重复代码 | 全项目只剩一处实现 |
 | P1 | 启动日志与实际路由不一致 | 运维误导 | 同步修正 endpoint 清单或补齐缺失路由 | 文档/日志/API三者一致 |
 | P1 | import side effects | 测试和运行不稳定 | 禁止模块导入即执行配置/认证初始化 | 配置与依赖仅在 startup/deps 中初始化 |
@@ -316,13 +316,11 @@ warp2api/
   - `STRICT_ENV` 与配置安全校验生效
 - Phase 1：已完成（骨架）
   - 已引入 `src/warp2api` 包结构
-  - 已提供统一启动入口：`warp2api` / `warp2api-bridge` / `warp2api-gateway`
-  - 旧入口保持兼容：`server.py`、`openai_compat.py`（已降级为 thin wrapper）
+  - 已提供统一启动入口：`warp2api` / `warp2api-gateway`
 - Phase 2：已部分完成
   - 运行时主实现已迁移到：
     - `src/warp2api/app/bridge_runtime.py`
     - `src/warp2api/app/openai_runtime.py`
-  - 旧入口仅保留兼容导出，避免破坏现有脚本/部署
   - bridge 侧 app 组装已迁移到：
     - `src/warp2api/app/bridge_app.py`
     - `src/warp2api/app/bridge_bootstrap.py`
@@ -331,5 +329,3 @@ warp2api/
   - OpenAI `POST /v1/responses`（基础兼容）
   - Anthropic 关键 header/字段校验
   - Gemini `v1beta` 路径兼容
-- 工程化：已补齐基础 CI
-  - `.github/workflows/ci.yml` 执行编译检查 + pytest

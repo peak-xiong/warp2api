@@ -1,12 +1,12 @@
 module.exports = {
   apps: [
     {
-      name: "warp-gateway",
+      name: "warp2api-gateway",
       script: "uv",
-      cwd: "/Users/xiongfeng/Documents/Web3Projects/warp2api",
+      cwd: "/Users/xiongfeng/Documents/Web3Projects/Warp2Api",
       interpreter: "none",
       args: "run warp2api-gateway --port 28889",
-      watch: ["src", "openai_compat.py"],
+      watch: ["src", "static"],
       ignore_watch: [".git", ".venv", "logs", "__pycache__", "*.log"],
       watch_delay: 1200,
       autorestart: true,
@@ -18,22 +18,6 @@ module.exports = {
       env: {
         PYTHONUNBUFFERED: "1",
         WARP_TRUST_ENV: "0",
-      },
-    },
-    {
-      name: "warp-log-watchdog",
-      script: "scripts/pm2_log_watchdog.sh",
-      cwd: "/Users/xiongfeng/Documents/Web3Projects/warp2api",
-      interpreter: "bash",
-      watch: false,
-      autorestart: true,
-      max_restarts: 1000,
-      min_uptime: "2s",
-      out_file: "logs/pm2_watchdog_out.log",
-      error_file: "logs/pm2_watchdog_err.log",
-      merge_logs: true,
-      env: {
-        WATCH_INTERVAL_SECONDS: "20",
       },
     },
   ],

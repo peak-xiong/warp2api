@@ -65,9 +65,9 @@ Keep external APIs stable while making internals maintainable and testable.
   - all-2-api style minimal protobuf request bytes builder
 
 ### 5) Entrypoints
-- `server.py`
-- `openai_compat.py`
-- Both are lightweight launchers and do not contain fallback/compat routing logic.
+- `src/warp2api/app/main.py`
+- `src/warp2api/app/openai.py`
+- Runtime entrypoints are exported from `pyproject.toml` scripts.
 
 ## Non-Negotiable Rule
 - Single upstream transport path only:
