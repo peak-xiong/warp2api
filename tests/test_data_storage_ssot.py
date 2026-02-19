@@ -9,7 +9,6 @@ def test_monitor_status_reads_from_sqlite(monkeypatch, tmp_path):
     repo = get_token_repository()
     repo.upsert_health_snapshot(
         token_id=11,
-        token_preview="rt-xx...yy",
         healthy=True,
         last_checked_at=123.0,
         last_success_at=123.0,
@@ -21,4 +20,3 @@ def test_monitor_status_reads_from_sqlite(monkeypatch, tmp_path):
     status = get_monitor_status()
     assert status["token_count"] >= 1
     assert any(item.get("token_id") == 11 for item in status["items"])
-

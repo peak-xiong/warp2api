@@ -36,7 +36,7 @@ def _monitor_interval_seconds() -> int:
         return 3600
 
 
-async def _check_one_token(token_id: int, token_preview: str) -> None:
+async def _check_one_token(token_id: int) -> None:
     repo = get_token_repository()
     prev = repo.get_health_snapshot(token_id) or {}
     start = time.monotonic()
@@ -52,7 +52,6 @@ async def _check_one_token(token_id: int, token_preview: str) -> None:
         now_ts = time.time()
         repo.upsert_health_snapshot(
             token_id=token_id,
-            token_preview=token_preview,
             healthy=True,
             last_checked_at=now_ts,
             last_success_at=now_ts,
@@ -67,7 +66,6 @@ async def _check_one_token(token_id: int, token_preview: str) -> None:
         consecutive_failures = int(prev.get("consecutive_failures") or 0) + 1
         repo.upsert_health_snapshot(
             token_id=token_id,
-            token_preview=token_preview,
             healthy=False,
             last_checked_at=now_ts,
             last_success_at=last_success_at,
@@ -88,7 +86,7 @@ async def _run_monitor(stop_event: asyncio.Event) -> None:
             if tokens:
                 await asyncio.gather(
                     *(
-                        _check_one_token(int(t["id"]), str(t.get("token_preview") or ""))
+                        _check_one_token(int(t["id"]))
                         for t in tokens
                         if str(t.get("status") or "") in {"active", "cooldown", "quota_exhausted"}
                     )
@@ -136,7 +134,7 @@ def get_monitor_status() -> Dict[str, object]:
     repo = get_token_repository()
     task_running = bool(_MONITOR_TASK and not _MONITOR_TASK.done())
     items = repo.list_health_snapshots()
-    items.sort(key=lambda x: x.get("token_preview", ""))
+    items.sort(key=lambda x: int(x.get("token_id") or 0))
 
     healthy = sum(1 for x in items if bool(x.get("healthy")))
     unhealthy = len(items) - healthy

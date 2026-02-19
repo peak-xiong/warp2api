@@ -56,13 +56,3 @@ def decrypt_refresh_token(ciphertext_b64: str) -> str:
 
 def token_hash(token: str) -> str:
     return hashlib.sha256((token or "").strip().encode("utf-8")).hexdigest()
-
-
-def token_preview(token: str) -> str:
-    t = (token or "").strip()
-    if not t:
-        return ""
-    if len(t) <= 10:
-        return t[:2] + "***"
-    return f"{t[:6]}...{t[-4:]}"
-

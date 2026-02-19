@@ -18,20 +18,32 @@ class BatchImportRequest(BaseModel):
     tokens: List[str] = Field(default_factory=list)
 
 
+class TokenAccountImportItem(BaseModel):
+    refresh_token: str
+    email: Optional[str] = None
+    api_key: Optional[str] = None
+    id_token: Optional[str] = None
+    total_limit: Optional[int] = None
+    used_limit: Optional[int] = None
+
+
 class AddTokenRequest(BaseModel):
     token: str
 
 
 class UpdateTokenRequest(BaseModel):
-    label: Optional[str] = None
     status: Optional[str] = None
+
+
+class BatchDeleteRequest(BaseModel):
+    ids: List[int] = Field(default_factory=list)
 
 
 @router.get("/admin/tokens", response_class=HTMLResponse)
 async def admin_tokens_page():
-    file_path = Path("static") / "admin_tokens.html"
+    file_path = Path("static") / "admin-tokens.html"
     if not file_path.exists():
-        return HTMLResponse("admin_tokens.html not found", status_code=404)
+        return HTMLResponse("admin-tokens.html not found", status_code=404)
     return HTMLResponse(file_path.read_text(encoding="utf-8"))
 
 
@@ -56,7 +68,26 @@ async def admin_batch_import_tokens(payload: BatchImportRequest, request: Reques
     await require_admin_auth(request)
     svc = get_token_pool_service()
     actor = request.headers.get("x-admin-actor") or "admin"
-    result = svc.batch_import(payload.tokens, actor=actor)
+    raw_accounts = []
+    try:
+        body_obj = await request.json()
+        raw_accounts = body_obj.get("accounts") if isinstance(body_obj, dict) else []
+    except Exception:
+        raw_accounts = []
+    if isinstance(raw_accounts, list) and raw_accounts:
+        items = [TokenAccountImportItem.model_validate(x).model_dump() for x in raw_accounts]
+        result = svc.batch_import_accounts(items, actor=actor)
+    else:
+        result = svc.batch_import(payload.tokens, actor=actor)
+    return {"success": True, "data": result}
+
+
+@router.post(f"{ADMIN_API_PREFIX}/batch-delete")
+async def admin_batch_delete_tokens(payload: BatchDeleteRequest, request: Request):
+    await require_admin_auth(request)
+    svc = get_token_pool_service()
+    actor = request.headers.get("x-admin-actor") or "admin"
+    result = svc.batch_delete_tokens(payload.ids, actor=actor)
     return {"success": True, "data": result}
 
 
@@ -66,9 +97,21 @@ async def admin_update_token(token_id: int, payload: UpdateTokenRequest, request
     svc = get_token_pool_service()
     actor = request.headers.get("x-admin-actor") or "admin"
     try:
-        data = svc.update_token(token_id, label=payload.label, status=payload.status, actor=actor)
+        data = svc.update_token(token_id, status=payload.status, actor=actor)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    return {"success": True, "data": data}
+
+
+@router.delete(f"{ADMIN_API_PREFIX}" + "/{token_id}")
+async def admin_delete_token(token_id: int, request: Request):
+    await require_admin_auth(request)
+    svc = get_token_pool_service()
+    actor = request.headers.get("x-admin-actor") or "admin"
+    try:
+        data = svc.delete_token(token_id, actor=actor)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
     return {"success": True, "data": data}
 
 

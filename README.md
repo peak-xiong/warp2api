@@ -66,6 +66,7 @@ curl http://127.0.0.1:28889/healthz
 - `GET /admin/tokens`（管理 UI）
 - `GET /admin/api/tokens`
 - `POST /admin/api/tokens/batch-import`
+- `POST /admin/api/tokens/batch-delete`
 - `POST /admin/api/tokens/{id}/refresh`
 - `GET /admin/api/tokens/statistics`
 - `GET /admin/api/tokens/health`

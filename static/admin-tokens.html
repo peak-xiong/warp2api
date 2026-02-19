@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>warp2api - Token Control</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap');
+    :root {
+      --bg0: #0f172a;
+      --bg1: #111827;
+      --panel: rgba(15, 23, 42, 0.86);
+      --panel-strong: rgba(30, 41, 59, 0.95);
+      --ink: #f8fafc;
+      --ink-soft: #cbd5e1;
+      --line: #334155;
+      --brand: #22c55e;
+      --brand-deep: #16a34a;
+      --ok: #22c55e;
+      --bad: #fb923c;
+      --glow: 0 22px 60px rgba(2, 6, 23, 0.45);
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      color: var(--ink);
+      font-family: "Fira Sans", "Segoe UI", "PingFang SC", sans-serif;
+      background: var(--bg0);
+      min-height: 100vh;
+    }
+    .wrap { width: calc(100vw - 18px); max-width: none; margin: 0 auto; padding: 12px 10px 14px; }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 10px;
+      animation: rise .45s ease both;
+    }
+    .hero h1 {
+      margin: 0;
+      font-size: 38px;
+      font-weight: 820;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+    .hero p {
+      margin-top: 6px;
+      color: var(--ink-soft);
+      font-size: clamp(16px, 1.35vw, 24px);
+      letter-spacing: -0.02em;
+      opacity: .88;
+    }
+    .badge {
+      border: 1px solid #475569;
+      border-radius: 999px;
+      font-size: 13px;
+      padding: 6px 12px;
+      background: rgba(30, 41, 59, 0.86);
+      color: #86efac;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 10px;
+      box-shadow: var(--glow);
+      backdrop-filter: blur(10px);
+      animation: rise .55s ease both;
+    }
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1.2fr repeat(5, minmax(86px, 1fr));
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    input, textarea, button, select {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 10px;
+      font: inherit;
+      background: var(--panel-strong);
+      transition: .16s ease;
+    }
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: #22c55e;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+    }
+    textarea { width: 100%; min-height: 128px; resize: vertical; }
+    button {
+      background: var(--brand);
+      color: #052e16;
+      cursor: pointer;
+      border: none;
+      font-weight: 700;
+      letter-spacing: .01em;
+    }
+    button:hover { transform: translateY(-1px); opacity: .94; }
+    button:active { transform: translateY(0); }
+    button.secondary {
+      background: rgba(51, 65, 85, .62);
+      color: #e2e8f0;
+      border: 1px solid var(--line);
+    }
+    button.danger {
+      background: rgba(127, 29, 29, .24);
+      color: #fecaca;
+      border: 1px solid #7f1d1d;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(90px, 1fr));
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 9px;
+      min-height: 64px;
+      box-shadow: inset 0 1px 0 rgba(148, 163, 184, .14);
+    }
+    .card .k { font-size: 11px; color: #94a3b8; font-weight: 600; }
+    .card .v { font-size: 24px; line-height: 1.1; font-weight: 800; letter-spacing: -0.02em; margin-top: 2px; }
+    .status-ok { color: var(--ok); }
+    .status-bad { color: var(--bad); }
+    .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; align-items: stretch; }
+    .grid2 > .panel { min-width: 0; }
+    .section-title { font-size: 19px; letter-spacing: -0.02em; font-weight: 800; margin-bottom: 8px; }
+    .log {
+      margin: 0;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 12px;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      width: 100%;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-all;
+      max-height: 190px;
+      overflow-x: hidden;
+      overflow: auto;
+      background: rgba(15, 23, 42, .64);
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .table-wrap {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: auto;
+      background: rgba(15, 23, 42, .72);
+    }
+    table { width: 100%; border-collapse: collapse; min-width: 1880px; table-layout: fixed; }
+    th, td {
+      padding: 8px 8px;
+      border-bottom: 1px solid #334155;
+      text-align: left;
+      font-size: 13px;
+      vertical-align: middle;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: .03em;
+      white-space: nowrap;
+    }
+    tbody tr:hover { background: rgba(51, 65, 85, .45); }
+    .chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; display: inline-block; border: 1px solid transparent; font-weight: 700; letter-spacing: .01em; }
+    .chip.active { background: #052e16; color: #86efac; border-color: #15803d; }
+    .chip.cooldown { background: #422006; color: #fdba74; border-color: #b45309; }
+    .chip.blocked { background: #1f2937; color: #d1d5db; border-color: #4b5563; }
+    .chip.quota_exhausted { background: #431407; color: #fdba74; border-color: #c2410c; }
+    .chip.disabled { background: #111827; color: #94a3b8; border-color: #475569; }
+    .chip.ready { background: #052e16; color: #86efac; border-color: #15803d; }
+    .chip.unready { background: #431407; color: #fdba74; border-color: #c2410c; }
+    .row-actions { display: flex; gap: 6px; justify-content: flex-start; }
+    .row-actions button { padding: 4px 8px; font-size: 12px; border-radius: 8px; min-width: 66px; }
+    .row-actions button.secondary { padding: 4px 8px; }
+    th.action-col {
+      position: sticky;
+      right: 0;
+      z-index: 3;
+      background: #1e293b;
+    }
+    td.action-col {
+      position: sticky;
+      right: 0;
+      z-index: 2;
+      background: rgba(15, 23, 42, .96);
+      overflow: visible;
+      text-overflow: unset;
+    }
+    .cell-center { text-align: center; }
+    .cell-mono { font-family: ui-monospace, Menlo, monospace; }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 980px) {
+      .wrap { width: calc(100vw - 8px); padding: 8px 4px 10px; }
+      .hero h1 { font-size: 30px; }
+      .hero p { font-size: 16px; }
+      .toolbar { grid-template-columns: 1fr 1fr; }
+      .cards { grid-template-columns: repeat(3, minmax(110px, 1fr)); }
+      .grid2 { grid-template-columns: 1fr; }
+      .hero { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+      <div class="hero">
+      <div>
+        <h1>Token 控制台</h1>
+        <p>账号池状态、保活结果、路由可用性一体化查看</p>
+      </div>
+      <div class="badge">/admin/tokens</div>
+    </div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <input id="adminToken" type="password" placeholder="ADMIN_TOKEN（若 local/off 模式可留空）">
+        <button id="btnRefreshAll">刷新全部</button>
+        <button class="secondary" id="btnLoad">刷新列表</button>
+        <button class="secondary" id="btnStats">统计</button>
+        <button class="secondary" id="btnHealth">健康</button>
+        <button class="danger" id="btnDeleteSelected">删除选中</button>
+      </div>
+
+      <div class="cards">
+        <div class="card"><div class="k">总数</div><div class="v" id="cTotal">0</div></div>
+        <div class="card"><div class="k">可用</div><div class="v status-ok" id="cAvail">0</div></div>
+        <div class="card"><div class="k">冷却</div><div class="v" id="cCooldown">0</div></div>
+        <div class="card"><div class="k">封禁</div><div class="v status-bad" id="cBlocked">0</div></div>
+        <div class="card"><div class="k">额度耗尽</div><div class="v status-bad" id="cQuota">0</div></div>
+        <div class="card"><div class="k">可接流量</div><div class="v" id="cReady">no</div></div>
+      </div>
+
+      <div class="grid2">
+        <div class="panel">
+          <div class="section-title">批量导入</div>
+          <textarea id="batchTokens" placeholder="支持两种格式：&#10;1) 每行一个 refresh token&#10;2) JSON 数组对象（含 refresh_token/email/api_key/id_token/total_limit/used_limit）"></textarea>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button id="btnImport">导入</button>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="section-title">状态输出</div>
+          <pre id="console" class="log">等待操作...</pre>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+      <table>
+        <colgroup>
+          <col style="width:32px">
+          <col style="width:54px">
+          <col style="width:156px">
+          <col style="width:140px">
+          <col style="width:220px">
+          <col style="width:140px">
+          <col style="width:96px">
+          <col style="width:90px">
+          <col style="width:72px">
+          <col style="width:76px">
+          <col style="width:120px">
+          <col style="width:138px">
+          <col style="width:138px">
+          <col style="width:86px">
+          <col style="width:86px">
+          <col style="width:86px">
+          <col style="width:96px">
+          <col style="width:86px">
+          <col style="width:90px">
+          <col style="width:170px">
+          <col style="width:138px">
+          <col style="width:200px">
+          <col style="width:138px">
+          <col style="width:220px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th><input id="chkAll" type="checkbox"></th>
+            <th>ID</th>
+            <th>Email</th>
+            <th>API Key</th>
+            <th>Refresh Token</th>
+            <th>ID Token</th>
+            <th>Status</th>
+            <th>Routable</th>
+            <th>Error</th>
+            <th>Err Cnt</th>
+            <th>Cooldown</th>
+            <th>Last Check</th>
+            <th>Last Success</th>
+            <th>Use Cnt</th>
+            <th>Total</th>
+            <th>Used</th>
+            <th>Remain</th>
+            <th>Quota</th>
+            <th>Healthy</th>
+            <th>Failures</th>
+            <th>Latency</th>
+            <th>Health Error</th>
+            <th>H Updated</th>
+            <th class="action-col">Action</th>
+          </tr>
+        </thead>
+        <tbody id="tokenRows"></tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+  <script src="/assets/js/admin-tokens.js?v=20260219-5"></script>
+</body>
+</html>

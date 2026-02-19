@@ -46,13 +46,27 @@ class TokenPoolService:
         )
         return result
 
+    def batch_import_accounts(self, accounts: Iterable[Dict[str, Any]], actor: str = "admin") -> Dict[str, Any]:
+        result = self.repo.batch_import_accounts(accounts=accounts)
+        self.repo.append_audit_log(
+            action="batch_import_accounts",
+            actor=actor,
+            token_id=None,
+            result="ok",
+            detail=(
+                f"inserted={result['inserted']} duplicated={result['duplicated']} "
+                f"updated={result['updated']} invalid={result['invalid']}"
+            ),
+        )
+        return result
+
     def add_token(self, token: str, actor: str = "admin") -> Dict[str, Any]:
         return self.batch_import([token], actor=actor)
 
-    def update_token(self, token_id: int, *, label: Optional[str], status: Optional[str], actor: str) -> Dict[str, Any]:
+    def update_token(self, token_id: int, *, status: Optional[str], actor: str) -> Dict[str, Any]:
         if status is not None and status not in ALLOWED_STATUSES:
             raise ValueError(f"invalid status: {status}")
-        ok = self.repo.update_token(token_id, label=label, status=status)
+        ok = self.repo.update_token(token_id, status=status)
         if not ok:
             raise ValueError("token not found or unchanged")
         self.repo.append_audit_log(
@@ -60,10 +74,41 @@ class TokenPoolService:
             actor=actor,
             token_id=token_id,
             result="ok",
-            detail=f"label={label!r}, status={status!r}",
+            detail=f"status={status!r}",
         )
         data = self.repo.get_token(token_id)
         return data or {}
+
+    def delete_token(self, token_id: int, actor: str) -> Dict[str, Any]:
+        token = self.repo.get_token(token_id)
+        if not token:
+            raise ValueError("token not found")
+        ok = self.repo.delete_token(token_id)
+        if not ok:
+            raise ValueError("token not found")
+        self.repo.append_audit_log(
+            action="delete_token",
+            actor=actor,
+            token_id=token_id,
+            result="ok",
+            detail="deleted",
+        )
+        return {"deleted": True, "id": token_id}
+
+    def batch_delete_tokens(self, token_ids: Iterable[int], actor: str) -> Dict[str, Any]:
+        ids = [int(i) for i in token_ids]
+        result = self.repo.delete_tokens(ids)
+        self.repo.append_audit_log(
+            action="batch_delete_tokens",
+            actor=actor,
+            token_id=None,
+            result="ok",
+            detail=(
+                f"requested={result['requested']} deleted={result['deleted']} "
+                f"missing={result['missing']}"
+            ),
+        )
+        return result
 
     async def refresh_token(self, token_id: int, actor: str) -> Dict[str, Any]:
         refresh_token = self.repo.get_refresh_token(token_id)

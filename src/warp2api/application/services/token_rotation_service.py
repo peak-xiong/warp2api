@@ -10,7 +10,6 @@ from warp2api.observability.logging import logger
 
 from warp2api.application.services.token_lock_service import token_lock
 from warp2api.infrastructure.protobuf.minimal_request import build_minimal_warp_request
-from warp2api.infrastructure.token_pool.crypto import token_preview
 from warp2api.infrastructure.token_pool.repository import get_token_repository
 from warp2api.infrastructure.transport.warp_transport import send_warp_protobuf_request
 
@@ -229,8 +228,7 @@ def get_token_pool_status() -> Dict[str, Any]:
         out.append(
             {
                 "id": item.get("id"),
-                "label": item.get("label"),
-                "token_preview": item.get("token_preview"),
+                "warp_refresh_token": item.get("warp_refresh_token"),
                 "status": item.get("status"),
                 "error_count": item.get("error_count"),
                 "in_cooldown": remain > 0,
@@ -289,7 +287,6 @@ async def send_protobuf_with_rotation(
     for candidate in candidates:
         token_id = int(candidate["id"])
         refresh_token = candidate["refresh_token"]
-        preview = token_preview(refresh_token)
         repo = get_token_repository()
         repo.set_app_state("scheduler.last_token_id", str(token_id))
 
@@ -312,7 +309,6 @@ async def send_protobuf_with_rotation(
                     {
                         "mode": "token_pool",
                         "token_id": token_id,
-                        "token_preview": preview,
                         "status_code": result.get("status_code"),
                         "error": str(result.get("error") or "")[:200],
                     }
@@ -330,7 +326,6 @@ async def send_protobuf_with_rotation(
                 {
                     "mode": "token_pool",
                     "token_id": token_id,
-                    "token_preview": preview,
                     "status_code": 0,
                     "error": str(exc)[:200],
                 }

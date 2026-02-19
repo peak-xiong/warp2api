@@ -202,7 +202,6 @@ def test_scheduler_skips_unhealthy_tokens(monkeypatch, tmp_path: Path):
     repo = get_token_repository()
     repo.upsert_health_snapshot(
         token_id=bad_id,
-        token_preview=items[0]["token_preview"],
         healthy=False,
         last_checked_at=123.0,
         last_success_at=0.0,
