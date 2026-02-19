@@ -55,6 +55,10 @@ class TokenRepository:
                     use_count INTEGER NOT NULL DEFAULT 0,
                     quota_limit INTEGER,
                     quota_used INTEGER,
+                    quota_remaining INTEGER,
+                    quota_is_unlimited INTEGER,
+                    quota_next_refresh_time TEXT,
+                    quota_refresh_duration TEXT,
                     quota_updated_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -128,6 +132,10 @@ class TokenRepository:
                     use_count INTEGER NOT NULL DEFAULT 0,
                     quota_limit INTEGER,
                     quota_used INTEGER,
+                    quota_remaining INTEGER,
+                    quota_is_unlimited INTEGER,
+                    quota_next_refresh_time TEXT,
+                    quota_refresh_duration TEXT,
                     quota_updated_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -139,13 +147,13 @@ class TokenRepository:
                 INSERT INTO token_accounts_new (
                     id, refresh_token, token_hash, refresh_token_encrypted, email, api_key, id_token, total_limit, used_limit, status, error_count,
                     last_error_code, last_error_message, last_success_at, last_check_at,
-                    cooldown_until, use_count, quota_limit, quota_used, quota_updated_at,
+                    cooldown_until, use_count, quota_limit, quota_used, quota_remaining, quota_is_unlimited, quota_next_refresh_time, quota_refresh_duration, quota_updated_at,
                     created_at, updated_at
                 )
                 SELECT
                     id, NULL, token_hash, refresh_token_encrypted, NULL, NULL, NULL, NULL, NULL, status, error_count,
                     last_error_code, last_error_message, last_success_at, last_check_at,
-                    cooldown_until, use_count, quota_limit, quota_used, quota_updated_at,
+                    cooldown_until, use_count, quota_limit, quota_used, NULL, NULL, NULL, NULL, quota_updated_at,
                     created_at, updated_at
                 FROM token_accounts
                 """
@@ -162,6 +170,10 @@ class TokenRepository:
             ("id_token", "TEXT"),
             ("total_limit", "INTEGER"),
             ("used_limit", "INTEGER"),
+            ("quota_remaining", "INTEGER"),
+            ("quota_is_unlimited", "INTEGER"),
+            ("quota_next_refresh_time", "TEXT"),
+            ("quota_refresh_duration", "TEXT"),
         ):
             if col not in account_cols:
                 conn.execute(f"ALTER TABLE token_accounts ADD COLUMN {col} {col_type}")
@@ -278,6 +290,10 @@ class TokenRepository:
             "use_count": row["use_count"],
             "quota_limit": row["quota_limit"],
             "quota_used": row["quota_used"],
+            "quota_remaining": row["quota_remaining"],
+            "quota_is_unlimited": bool(int(row["quota_is_unlimited"])) if row["quota_is_unlimited"] is not None else None,
+            "quota_next_refresh_time": row["quota_next_refresh_time"],
+            "quota_refresh_duration": row["quota_refresh_duration"],
             "quota_updated_at": row["quota_updated_at"],
             "healthy": bool(int(row["healthy"])) if row["healthy"] is not None else None,
             "health_last_checked_at": row["health_last_checked_at"],
@@ -349,6 +365,19 @@ class TokenRepository:
         except Exception:
             return None
 
+    def find_token_id_by_refresh_token(self, refresh_token: str) -> Optional[int]:
+        token = str(refresh_token or "").strip()
+        if not token:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM token_accounts WHERE refresh_token = ? LIMIT 1",
+                (token,),
+            ).fetchone()
+        if not row:
+            return None
+        return int(row["id"])
+
     def delete_token(self, token_id: int) -> bool:
         with self._connect() as conn:
             conn.execute(
@@ -416,20 +445,29 @@ class TokenRepository:
 
         with self._connect() as conn:
             for token in cleaned:
+                existed = conn.execute(
+                    "SELECT 1 FROM token_accounts WHERE refresh_token = ? LIMIT 1",
+                    (token,),
+                ).fetchone() is not None
                 th = token_hash(token)
                 encrypted = encrypt_refresh_token(token)
-                cur = conn.execute(
+                conn.execute(
                     """
-                    INSERT OR IGNORE INTO token_accounts (
+                    INSERT INTO token_accounts (
                         refresh_token, token_hash, refresh_token_encrypted, status, created_at, updated_at
                     ) VALUES (?, ?, ?, 'active', ?, ?)
+                    ON CONFLICT DO UPDATE SET
+                        token_hash=excluded.token_hash,
+                        refresh_token_encrypted=excluded.refresh_token_encrypted,
+                        status='active',
+                        updated_at=excluded.updated_at
                     """,
                     (token, th, encrypted, now, now),
                 )
-                if cur.rowcount == 1:
-                    inserted += 1
-                else:
+                if existed:
                     duplicated += 1
+                else:
+                    inserted += 1
         return {"inserted": inserted, "duplicated": duplicated}
 
     def batch_import_accounts(self, accounts: Iterable[Dict[str, Any]]) -> Dict[str, int]:
@@ -450,6 +488,10 @@ class TokenRepository:
                 if token in seen:
                     continue
                 seen.add(token)
+                existed = conn.execute(
+                    "SELECT 1 FROM token_accounts WHERE refresh_token = ? LIMIT 1",
+                    (token,),
+                ).fetchone() is not None
 
                 th = token_hash(token)
                 encrypted = encrypt_refresh_token(token)
@@ -459,34 +501,30 @@ class TokenRepository:
                 total_limit = acc.get("total_limit")
                 used_limit = acc.get("used_limit")
 
-                cur = conn.execute(
+                conn.execute(
                     """
-                    INSERT OR IGNORE INTO token_accounts (
+                    INSERT INTO token_accounts (
                         refresh_token, token_hash, refresh_token_encrypted, email, api_key, id_token, total_limit, used_limit,
                         status, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                    ON CONFLICT DO UPDATE SET
+                        token_hash=excluded.token_hash,
+                        refresh_token_encrypted=excluded.refresh_token_encrypted,
+                        email = COALESCE(excluded.email, token_accounts.email),
+                        api_key = COALESCE(excluded.api_key, token_accounts.api_key),
+                        id_token = COALESCE(excluded.id_token, token_accounts.id_token),
+                        total_limit = COALESCE(excluded.total_limit, token_accounts.total_limit),
+                        used_limit = COALESCE(excluded.used_limit, token_accounts.used_limit),
+                        status='active',
+                        updated_at=excluded.updated_at
                     """,
                     (token, th, encrypted, email, api_key, id_token, total_limit, used_limit, now, now),
                 )
-                if cur.rowcount == 1:
-                    inserted += 1
-                else:
+                if existed:
                     duplicated += 1
-                    upd = conn.execute(
-                        """
-                        UPDATE token_accounts
-                        SET email = COALESCE(?, email),
-                            api_key = COALESCE(?, api_key),
-                            id_token = COALESCE(?, id_token),
-                            total_limit = COALESCE(?, total_limit),
-                            used_limit = COALESCE(?, used_limit),
-                            updated_at = ?
-                        WHERE refresh_token = ?
-                        """,
-                        (email, api_key, id_token, total_limit, used_limit, now, token),
-                    )
-                    if upd.rowcount == 1:
-                        updated += 1
+                    updated += 1
+                else:
+                    inserted += 1
 
         return {"inserted": inserted, "duplicated": duplicated, "updated": updated, "invalid": invalid}
 
@@ -496,6 +534,8 @@ class TokenRepository:
         *,
         status: Optional[str] = None,
         refresh_token: Optional[str] = None,
+        total_limit: Optional[int] = None,
+        used_limit: Optional[int] = None,
         error_count: Optional[int] = None,
         last_error_code: Optional[str] = None,
         last_error_message: Optional[str] = None,
@@ -503,6 +543,13 @@ class TokenRepository:
         last_check_at: Optional[str] = None,
         cooldown_until: Optional[str] = None,
         use_count: Optional[int] = None,
+        quota_limit: Optional[int] = None,
+        quota_used: Optional[int] = None,
+        quota_remaining: Optional[int] = None,
+        quota_is_unlimited: Optional[bool] = None,
+        quota_next_refresh_time: Optional[str] = None,
+        quota_refresh_duration: Optional[str] = None,
+        quota_updated_at: Optional[str] = None,
     ) -> bool:
         fields: List[str] = []
         params: List[Any] = []
@@ -515,6 +562,12 @@ class TokenRepository:
             params.append(refresh_token)
             fields.append("refresh_token_encrypted = ?")
             params.append(encrypt_refresh_token(refresh_token))
+        if total_limit is not None:
+            fields.append("total_limit = ?")
+            params.append(int(total_limit))
+        if used_limit is not None:
+            fields.append("used_limit = ?")
+            params.append(int(used_limit))
         if error_count is not None:
             fields.append("error_count = ?")
             params.append(error_count)
@@ -536,6 +589,27 @@ class TokenRepository:
         if use_count is not None:
             fields.append("use_count = ?")
             params.append(use_count)
+        if quota_limit is not None:
+            fields.append("quota_limit = ?")
+            params.append(int(quota_limit))
+        if quota_used is not None:
+            fields.append("quota_used = ?")
+            params.append(int(quota_used))
+        if quota_remaining is not None:
+            fields.append("quota_remaining = ?")
+            params.append(int(quota_remaining))
+        if quota_is_unlimited is not None:
+            fields.append("quota_is_unlimited = ?")
+            params.append(1 if bool(quota_is_unlimited) else 0)
+        if quota_next_refresh_time is not None:
+            fields.append("quota_next_refresh_time = ?")
+            params.append(quota_next_refresh_time)
+        if quota_refresh_duration is not None:
+            fields.append("quota_refresh_duration = ?")
+            params.append(quota_refresh_duration)
+        if quota_updated_at is not None:
+            fields.append("quota_updated_at = ?")
+            params.append(quota_updated_at)
 
         if not fields:
             return False

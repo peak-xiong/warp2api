@@ -234,3 +234,34 @@ def test_scheduler_skips_unhealthy_tokens(monkeypatch, tmp_path: Path):
         )
     )
     assert result["attempts"][0]["token_id"] == good_id
+
+
+def test_refresh_token_merges_duplicate_refresh_token(monkeypatch, tmp_path: Path):
+    db_path = tmp_path / "token_pool_merge.db"
+    monkeypatch.setenv("WARP_TOKEN_DB_PATH", str(db_path))
+
+    svc = get_token_pool_service()
+    svc.batch_import(["rt-merge-a", "rt-merge-b"], actor="test")
+    items = svc.list_tokens()
+    ids = {item["warp_refresh_token"]: int(item["id"]) for item in items}
+    id_a = ids["rt-merge-a"]
+    id_b = ids["rt-merge-b"]
+
+    async def _fake_refresh(*args, **kwargs):
+        return {"access_token": "jwt-ok", "refresh_token": "rt-merge-a"}
+
+    monkeypatch.setattr(
+        "warp2api.application.services.token_pool_service.refresh_jwt_token",
+        _fake_refresh,
+    )
+
+    result = asyncio.run(svc.refresh_token(id_b, actor="test"))
+    assert result["success"] is True
+    assert int(result["token"]["id"]) == id_a
+
+    repo = get_token_repository()
+    merged_source = repo.get_token(id_b)
+    merged_target = repo.get_token(id_a)
+    assert merged_source is None
+    assert merged_target is not None
+    assert merged_target["status"] == "active"

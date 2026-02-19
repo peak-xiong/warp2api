@@ -139,6 +139,18 @@ async def admin_health_check_token(token_id: int, request: Request):
     return {"success": True, "data": result}
 
 
+@router.post(f"{ADMIN_API_PREFIX}" + "/{token_id}/quota-refresh")
+async def admin_refresh_token_quota(token_id: int, request: Request):
+    await require_admin_auth(request)
+    svc = get_token_pool_service()
+    actor = request.headers.get("x-admin-actor") or "admin"
+    try:
+        result = await svc.refresh_token_quota(token_id, actor=actor)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+    return {"success": True, "data": result}
+
+
 @router.post(f"{ADMIN_API_PREFIX}/refresh-all")
 async def admin_refresh_all_tokens(request: Request):
     await require_admin_auth(request)

@@ -7,6 +7,12 @@ function syncDeleteSelectedButton() {
   btn.textContent = n > 0 ? `删除选中(${n})` : "删除选中";
 }
 
+function applyRowSelectedState(rowEl, checked) {
+  if (!rowEl) return;
+  if (checked) rowEl.classList.add("is-selected");
+  else rowEl.classList.remove("is-selected");
+}
+
 function safePreview(value, head = 8, tail = 6) {
   const s = String(value || "");
   if (!s) return "";
@@ -66,6 +72,26 @@ function statusChip(status) {
   return `<span class="chip ${s}">${tag} · ${s || "-"}</span>`;
 }
 
+function statusUnifiedChip(t) {
+  const s = (t.status || "").trim();
+  const tagMap = {
+    active: "A",
+    cooldown: "C",
+    blocked: "B",
+    quota_exhausted: "Q",
+    disabled: "D",
+  };
+  const tag = tagMap[s] || "?";
+  const route = accountRoutableState(t).ok ? "yes" : "no";
+  return `<span class="chip ${s}">${tag} · ${s || "-"} · ${route}</span>`;
+}
+
+function shortText(v, n = 42) {
+  const s = cellValue(v);
+  if (s === "-") return s;
+  return s.length > n ? `${s.slice(0, n)}...` : s;
+}
+
 function fmt(ts) {
   if (!ts) return "-";
   try {
@@ -89,6 +115,23 @@ function fmtQuota(used, limit) {
   if (used == null) return `-/ ${limit}`;
   if (limit == null) return `${used} / -`;
   return `${used} / ${limit}`;
+}
+
+function fmtQuotaCompact(t) {
+  const used = t.quota_used ?? t.used_limit;
+  const limit = t.quota_limit ?? t.total_limit;
+  const remain = t.quota_remaining != null
+    ? Number(t.quota_remaining)
+    : (limit != null && used != null ? Math.max(0, Number(limit) - Number(used)) : null);
+  const next = t.quota_next_refresh_time ? fmt(t.quota_next_refresh_time) : "-";
+  const duration = cellValue(t.quota_refresh_duration);
+  if (used == null && limit == null) return `<div class="cell-stack"><div>-</div><div class="muted">next: -</div></div>`;
+  if (t.quota_is_unlimited === true || Number(limit) < 0) {
+    return `<div class="cell-stack"><div>unlimited</div><div class="muted">next: ${next}</div></div>`;
+  }
+  const head = `${numberCell(used)} / ${numberCell(limit)}`;
+  const sub = `remain ${numberCell(remain)} · ${duration}`;
+  return `<div class="cell-stack"><div>${head}</div><div class="muted">${sub}</div><div class="muted">next: ${next}</div></div>`;
 }
 
 function compactText(v, head = 10, tail = 6) {
@@ -163,32 +206,42 @@ async function loadTokens() {
 
   for (const t of rows) {
     const tr = document.createElement("tr");
+    tr.setAttribute("data-row-id", String(t.id));
     const checked = selectedTokenIds.has(Number(t.id)) ? "checked" : "";
     tr.innerHTML = `
       <td><input type="checkbox" data-act="select" data-id="${t.id}" ${checked}></td>
       <td class="cell-center">${numberCell(t.id)}</td>
-      <td title="${cellValue(t.email)}">${cellValue(t.email)}</td>
-      <td class="cell-mono" title="${cellValue(t.api_key)}">${compactText(t.api_key, 10, 6)}</td>
+      <td title="${cellValue(t.email)}">
+        <div class="cell-stack">
+          <div>${cellValue(t.email)}</div>
+          <div class="mono muted" title="${cellValue(t.api_key)}">api: ${compactText(t.api_key, 10, 6)}</div>
+          <div class="mono muted" title="${cellValue(t.id_token)}">id: ${compactText(t.id_token, 10, 6)}</div>
+        </div>
+      </td>
       <td class="cell-mono" title="${cellValue(t.warp_refresh_token)}">${compactText(t.warp_refresh_token, 14, 10)}</td>
-      <td class="cell-mono" title="${cellValue(t.id_token)}">${compactText(t.id_token, 10, 6)}</td>
-      <td>${statusChip(t.status)}</td>
-      <td class="cell-center">${routableChip(t)}</td>
-      <td title="${cellValue(t.last_error_code)}">${cellValue(t.last_error_code)}</td>
-      <td class="cell-center">${numberCell(t.error_count ?? 0)}</td>
-      <td title="${fmt(t.cooldown_until)}">${fmt(t.cooldown_until)}</td>
-      <td title="${fmt(t.last_check_at || t.health_last_checked_at)}">${fmt(t.last_check_at || t.health_last_checked_at)}</td>
-      <td title="${fmt(t.last_success_at || t.health_last_success_at)}">${fmt(t.last_success_at || t.health_last_success_at)}</td>
+      <td>${fmtQuotaCompact(t)}</td>
+      <td class="col-status">${statusUnifiedChip(t)}</td>
       <td class="cell-center">${numberCell(t.use_count ?? 0)}</td>
-      <td class="cell-center">${numberCell(t.total_limit)}</td>
-      <td class="cell-center">${numberCell(t.used_limit)}</td>
-      <td class="cell-center">${(t.total_limit != null && t.used_limit != null) ? Math.max(0, Number(t.total_limit) - Number(t.used_limit)) : "-"}</td>
-      <td class="cell-center">${fmtQuota(t.quota_used, t.quota_limit)}</td>
-      <td class="cell-center">${t.healthy == null ? "-" : (t.healthy ? "true" : "false")}</td>
-      <td class="cell-center">${numberCell(t.health_consecutive_failures ?? 0)}</td>
-      <td class="cell-center">${numberCell(t.health_latency_ms)}</td>
-      <td title="${cellValue(t.health_last_error)}">${cellValue(t.health_last_error)}</td>
-      <td title="${fmt(t.health_updated_at)}">${fmt(t.health_updated_at)}</td>
-      <td class="action-col">
+      <td>
+        <div class="cell-stack">
+          <div>${t.healthy == null ? "-" : (t.healthy ? "healthy" : "unhealthy")}</div>
+          <div class="muted">fail ${numberCell(t.health_consecutive_failures ?? 0)} · ${numberCell(t.health_latency_ms)} ms</div>
+        </div>
+      </td>
+      <td>
+        <div class="cell-stack">
+          <div title="${fmt(t.last_check_at || t.health_last_checked_at)}">check: ${fmt(t.last_check_at || t.health_last_checked_at)}</div>
+          <div class="muted" title="${fmt(t.last_success_at || t.health_last_success_at)}">success: ${fmt(t.last_success_at || t.health_last_success_at)}</div>
+        </div>
+      </td>
+      <td title="${fmt(t.cooldown_until)}" class="cell-center">${fmt(t.cooldown_until)}</td>
+      <td title="${cellValue(t.last_error_message) || cellValue(t.health_last_error)}">
+        <div class="cell-stack">
+          <div>${cellValue(t.last_error_code)}</div>
+          <div class="muted">${shortText(t.last_error_message || t.health_last_error || "-", 56)}</div>
+        </div>
+      </td>
+      <td class="action-col col-actions">
         <div class="row-actions">
           <button data-act="refresh" data-id="${t.id}">Refresh</button>
           <button class="secondary" data-act="toggle" data-id="${t.id}" data-status="${t.status || ""}">
@@ -198,6 +251,7 @@ async function loadTokens() {
         </div>
       </td>
     `;
+    applyRowSelectedState(tr, selectedTokenIds.has(Number(t.id)));
     tbody.appendChild(tr);
   }
 
@@ -210,9 +264,24 @@ async function loadTokens() {
       const id = Number(chk.getAttribute("data-id"));
       if (chk.checked) selectedTokenIds.add(id);
       else selectedTokenIds.delete(id);
+      applyRowSelectedState(chk.closest("tr"), chk.checked);
       const all = document.getElementById("chkAll");
       if (all) all.checked = rows.length > 0 && rows.every(r => selectedTokenIds.has(Number(r.id)));
       syncDeleteSelectedButton();
+    });
+  });
+
+  tbody.querySelectorAll("tr[data-row-id]").forEach(tr => {
+    tr.addEventListener("click", (ev) => {
+      const target = ev.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest("button") || target.closest("a") || target.closest("input") || target.closest("textarea") || target.closest("select") || target.closest("label")) {
+        return;
+      }
+      const chk = tr.querySelector("input[data-act='select']");
+      if (!(chk instanceof HTMLInputElement)) return;
+      chk.checked = !chk.checked;
+      chk.dispatchEvent(new Event("change", { bubbles: true }));
     });
   });
 

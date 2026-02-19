@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from warp2api.infrastructure.auth.jwt_auth import refresh_jwt_token
+from warp2api.infrastructure.transport.warp_quota import get_request_limit
 from warp2api.infrastructure.token_pool.repository import get_token_repository
 
 
@@ -110,26 +111,109 @@ class TokenPoolService:
         )
         return result
 
+    @staticmethod
+    def _status_by_quota(quota_data: Dict[str, Any]) -> str:
+        if not quota_data:
+            return "active"
+        q_limit = int(quota_data.get("request_limit") or 0)
+        q_used = int(quota_data.get("requests_used") or 0)
+        q_unlimited = bool(quota_data.get("is_unlimited") or False)
+        if (not q_unlimited) and q_limit >= 0 and q_used >= q_limit:
+            return "quota_exhausted"
+        return "active"
+
+    @staticmethod
+    def _quota_update_fields(quota_data: Dict[str, Any], now_iso: str) -> Dict[str, Any]:
+        if not quota_data:
+            return {}
+        return {
+            "total_limit": int(quota_data.get("request_limit") or 0),
+            "used_limit": int(quota_data.get("requests_used") or 0),
+            "quota_limit": int(quota_data.get("request_limit") or 0),
+            "quota_used": int(quota_data.get("requests_used") or 0),
+            "quota_remaining": int(quota_data.get("requests_remaining") or 0),
+            "quota_is_unlimited": bool(quota_data.get("is_unlimited") or False),
+            "quota_next_refresh_time": str(quota_data.get("next_refresh_time") or ""),
+            "quota_refresh_duration": str(quota_data.get("refresh_duration") or ""),
+            "quota_updated_at": now_iso,
+        }
+
     async def refresh_token(self, token_id: int, actor: str) -> Dict[str, Any]:
         refresh_token = self.repo.get_refresh_token(token_id)
         if not refresh_token:
             raise ValueError("token not found")
 
         now = _utcnow_iso()
+        now_ts = datetime.now(timezone.utc).timestamp()
         token_data = await refresh_jwt_token(refresh_token_override=refresh_token)
         new_refresh = str(token_data.get("refresh_token") or refresh_token).strip()
         access = str(token_data.get("access_token") or token_data.get("id_token") or "").strip()
 
         if access:
+            quota_data: Dict[str, Any] = {}
+            try:
+                quota_data = get_request_limit(access)
+            except Exception:
+                quota_data = {}
+            status_by_quota = self._status_by_quota(quota_data)
+            quota_fields = self._quota_update_fields(quota_data, now)
+
+            # Upsert-by-refresh-token semantics: if refreshed token already belongs to
+            # another row, merge into that canonical row instead of raising UNIQUE errors.
+            existing_id = self.repo.find_token_id_by_refresh_token(new_refresh)
+            if existing_id is not None and int(existing_id) != int(token_id):
+                self.repo.update_token(
+                    int(existing_id),
+                    status=status_by_quota,
+                    error_count=0,
+                    last_error_code="",
+                    last_error_message="",
+                    last_success_at=now,
+                    last_check_at=now,
+                    **quota_fields,
+                )
+                self.repo.upsert_health_snapshot(
+                    token_id=int(existing_id),
+                    healthy=True,
+                    last_checked_at=now_ts,
+                    last_success_at=now_ts,
+                    last_error="",
+                    consecutive_failures=0,
+                    latency_ms=0,
+                )
+
+                # Keep token_accounts as a current-state snapshot.
+                # When a token refresh resolves to another existing token, remove
+                # the merged source row instead of persisting historical placeholders.
+                self.repo.delete_token(token_id)
+                self.repo.append_audit_log(
+                    action="refresh_token",
+                    actor=actor,
+                    token_id=token_id,
+                    result="ok",
+                    detail=f"refresh merged and removed source token; target={int(existing_id)}",
+                )
+                return {"success": True, "token": self.repo.get_token(int(existing_id))}
+
             self.repo.update_token(
                 token_id,
                 refresh_token=new_refresh,
-                status="active",
+                status=status_by_quota,
                 error_count=0,
                 last_error_code="",
                 last_error_message="",
                 last_success_at=now,
                 last_check_at=now,
+                **quota_fields,
+            )
+            self.repo.upsert_health_snapshot(
+                token_id=token_id,
+                healthy=True,
+                last_checked_at=now_ts,
+                last_success_at=now_ts,
+                last_error="",
+                consecutive_failures=0,
+                latency_ms=0,
             )
             self.repo.append_audit_log(
                 action="refresh_token",
@@ -147,6 +231,15 @@ class TokenPoolService:
             last_error_code="refresh_failed",
             last_error_message="refresh returned empty access token",
         )
+        self.repo.upsert_health_snapshot(
+            token_id=token_id,
+            healthy=False,
+            last_checked_at=now_ts,
+            last_success_at=0.0,
+            last_error="refresh returned empty access token",
+            consecutive_failures=1,
+            latency_ms=0,
+        )
         self.repo.append_audit_log(
             action="refresh_token",
             actor=actor,
@@ -155,6 +248,39 @@ class TokenPoolService:
             detail="empty access token",
         )
         return {"success": False, "token": self.repo.get_token(token_id)}
+
+    async def refresh_token_quota(self, token_id: int, actor: str) -> Dict[str, Any]:
+        refresh_token = self.repo.get_refresh_token(token_id)
+        if not refresh_token:
+            raise ValueError("token not found")
+
+        now = _utcnow_iso()
+        token_data = await refresh_jwt_token(refresh_token_override=refresh_token)
+        access = str(token_data.get("access_token") or token_data.get("id_token") or "").strip()
+        if not access:
+            raise ValueError("refresh returned empty access token")
+
+        quota = get_request_limit(access)
+        status_by_quota = self._status_by_quota(quota)
+        quota_fields = self._quota_update_fields(quota, now)
+        self.repo.update_token(
+            token_id,
+            status=status_by_quota,
+            last_check_at=now,
+            **quota_fields,
+        )
+        self.repo.append_audit_log(
+            action="refresh_token_quota",
+            actor=actor,
+            token_id=token_id,
+            result="ok",
+            detail=(
+                f"limit={int(quota.get('request_limit') or 0)} "
+                f"used={int(quota.get('requests_used') or 0)}"
+            ),
+        )
+        token = self.repo.get_token(token_id)
+        return {"success": True, "quota": quota, "token": token}
 
     async def health_check_token(self, token_id: int, actor: str) -> Dict[str, Any]:
         return await self.refresh_token(token_id, actor=actor)
@@ -212,6 +338,11 @@ class TokenPoolService:
                 disabled += 1
             elif status == "quota_exhausted":
                 quota += 1
+                quota_next = str(item.get("quota_next_refresh_time") or "")
+                quota_recover = max(0, int(_parse_iso(quota_next) - now_ts)) if quota_next else 0
+                if quota_recover > 0:
+                    if soonest_recovery_seconds is None or quota_recover < soonest_recovery_seconds:
+                        soonest_recovery_seconds = quota_recover
 
             if cooldown_remaining > 0:
                 if soonest_recovery_seconds is None or cooldown_remaining < soonest_recovery_seconds:

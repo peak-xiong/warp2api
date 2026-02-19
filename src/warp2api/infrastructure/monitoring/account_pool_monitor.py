@@ -23,17 +23,70 @@ _MONITOR_TASK: Optional[asyncio.Task] = None
 _STOP_EVENT: Optional[asyncio.Event] = None
 
 
-def _monitor_interval_seconds() -> int:
-    # Default hourly keepalive refresh.
-    raw = (
-        os.getenv("WARP_POOL_REFRESH_INTERVAL_SECONDS")
-        or os.getenv("WARP_POOL_HEALTH_INTERVAL_SECONDS")
-        or "3600"
-    )
+def _int_env(name: str, default: int, min_value: int = 1, max_value: int = 86400) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
     try:
-        return max(60, int(raw))
+        value = int(raw)
     except Exception:
-        return 3600
+        value = default
+    if value < min_value:
+        return min_value
+    if value > max_value:
+        return max_value
+    return value
+
+
+def _monitor_interval_seconds() -> int:
+    # Main scheduler tick; short enough for near-real-time state convergence.
+    return _int_env(
+        "WARP_POOL_MONITOR_INTERVAL_SECONDS",
+        default=_int_env(
+            "WARP_POOL_REFRESH_INTERVAL_SECONDS",
+            default=_int_env("WARP_POOL_HEALTH_INTERVAL_SECONDS", default=120, min_value=10),
+            min_value=10,
+        ),
+        min_value=10,
+    )
+
+
+def _per_token_refresh_interval_seconds() -> int:
+    # Minimum gap between two monitor refreshes for the same token.
+    return _int_env("WARP_POOL_TOKEN_REFRESH_INTERVAL_SECONDS", default=180, min_value=30)
+
+
+def _max_parallel_checks() -> int:
+    return _int_env("WARP_POOL_MONITOR_MAX_PARALLEL", default=3, min_value=1, max_value=32)
+
+
+def _quota_retry_lead_seconds() -> int:
+    # When quota exhausted, re-check close to next refresh window.
+    return _int_env("WARP_POOL_QUOTA_RETRY_LEAD_SECONDS", default=300, min_value=30, max_value=3600)
+
+
+def _parse_ts(raw: object) -> float:
+    if raw is None:
+        return 0.0
+    if isinstance(raw, (int, float)):
+        v = float(raw)
+        if v > 1e12:
+            return v / 1000.0
+        return v
+    s = str(raw).strip()
+    if not s:
+        return 0.0
+    try:
+        if s.replace(".", "", 1).isdigit():
+            v = float(s)
+            if v > 1e12:
+                return v / 1000.0
+            return v
+        from datetime import datetime
+
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
 
 
 async def _check_one_token(token_id: int) -> None:
@@ -77,20 +130,47 @@ async def _check_one_token(token_id: int) -> None:
 
 async def _run_monitor(stop_event: asyncio.Event) -> None:
     interval = _monitor_interval_seconds()
-    logger.info("[token_pool] monitor started, interval=%ss", interval)
+    per_token_interval = _per_token_refresh_interval_seconds()
+    max_parallel = _max_parallel_checks()
+    quota_lead = _quota_retry_lead_seconds()
+    logger.info(
+        "[token_pool] monitor started, tick=%ss per_token=%ss parallel=%s quota_lead=%ss",
+        interval,
+        per_token_interval,
+        max_parallel,
+        quota_lead,
+    )
 
     while not stop_event.is_set():
         try:
             svc = get_token_pool_service()
             tokens = svc.list_tokens()
             if tokens:
-                await asyncio.gather(
-                    *(
-                        _check_one_token(int(t["id"]))
-                        for t in tokens
-                        if str(t.get("status") or "") in {"active", "cooldown", "quota_exhausted"}
-                    )
-                )
+                now_ts = time.time()
+                due_ids = []
+                for t in tokens:
+                    status = str(t.get("status") or "")
+                    if status not in {"active", "cooldown", "quota_exhausted"}:
+                        continue
+
+                    if status == "quota_exhausted":
+                        next_refresh_ts = _parse_ts(t.get("quota_next_refresh_time"))
+                        if next_refresh_ts > 0 and (next_refresh_ts - now_ts) > quota_lead:
+                            continue
+
+                    last_check_ts = _parse_ts(t.get("last_check_at")) or _parse_ts(t.get("health_last_checked_at"))
+                    if last_check_ts > 0 and (now_ts - last_check_ts) < per_token_interval:
+                        continue
+                    due_ids.append(int(t["id"]))
+
+                if due_ids:
+                    sem = asyncio.Semaphore(max_parallel)
+
+                    async def _guarded_check(token_id: int) -> None:
+                        async with sem:
+                            await _check_one_token(token_id)
+
+                    await asyncio.gather(*(_guarded_check(tid) for tid in due_ids))
             else:
                 logger.warning("[token_pool] no refresh tokens found for health check")
         except Exception as exc:
@@ -142,6 +222,9 @@ def get_monitor_status() -> Dict[str, object]:
     return {
         "running": task_running,
         "interval_seconds": _monitor_interval_seconds(),
+        "per_token_refresh_interval_seconds": _per_token_refresh_interval_seconds(),
+        "max_parallel_checks": _max_parallel_checks(),
+        "quota_retry_lead_seconds": _quota_retry_lead_seconds(),
         "token_count": len(items),
         "healthy_count": healthy,
         "unhealthy_count": unhealthy,

@@ -71,7 +71,13 @@
     }
     .toolbar {
       display: grid;
-      grid-template-columns: 1.2fr repeat(5, minmax(86px, 1fr));
+      grid-template-columns: 1.2fr minmax(120px, .9fr);
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .table-toolbar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
       gap: 8px;
       margin-bottom: 8px;
     }
@@ -154,7 +160,7 @@
       overflow: auto;
       background: rgba(15, 23, 42, .72);
     }
-    table { width: 100%; border-collapse: collapse; min-width: 1880px; table-layout: fixed; }
+    table { width: 100%; border-collapse: collapse; min-width: 1480px; table-layout: fixed; }
     th, td {
       padding: 8px 8px;
       border-bottom: 1px solid #334155;
@@ -178,6 +184,7 @@
       white-space: nowrap;
     }
     tbody tr:hover { background: rgba(51, 65, 85, .45); }
+    tbody tr.is-selected { background: rgba(30, 64, 175, .25); }
     .chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; display: inline-block; border: 1px solid transparent; font-weight: 700; letter-spacing: .01em; }
     .chip.active { background: #052e16; color: #86efac; border-color: #15803d; }
     .chip.cooldown { background: #422006; color: #fdba74; border-color: #b45309; }
@@ -205,6 +212,13 @@
     }
     .cell-center { text-align: center; }
     .cell-mono { font-family: ui-monospace, Menlo, monospace; }
+    .cell-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .cell-stack .muted { color: #94a3b8; font-size: 12px; }
+    .cell-stack .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+    td.col-status, td.col-actions {
+      overflow: visible;
+      text-overflow: clip;
+    }
     @keyframes rise {
       from { opacity: 0; transform: translateY(8px); }
       to { opacity: 1; transform: translateY(0); }
@@ -214,6 +228,7 @@
       .hero h1 { font-size: 30px; }
       .hero p { font-size: 16px; }
       .toolbar { grid-template-columns: 1fr 1fr; }
+      .table-toolbar { grid-template-columns: 1fr 1fr; }
       .cards { grid-template-columns: repeat(3, minmax(110px, 1fr)); }
       .grid2 { grid-template-columns: 1fr; }
       .hero { flex-direction: column; align-items: flex-start; }
@@ -234,10 +249,6 @@
       <div class="toolbar">
         <input id="adminToken" type="password" placeholder="ADMIN_TOKEN（若 local/off 模式可留空）">
         <button id="btnRefreshAll">刷新全部</button>
-        <button class="secondary" id="btnLoad">刷新列表</button>
-        <button class="secondary" id="btnStats">统计</button>
-        <button class="secondary" id="btnHealth">健康</button>
-        <button class="danger" id="btnDeleteSelected">删除选中</button>
       </div>
 
       <div class="cards">
@@ -263,59 +274,42 @@
         </div>
       </div>
 
+      <div class="table-toolbar">
+        <button class="secondary" id="btnLoad">刷新列表</button>
+        <button class="secondary" id="btnStats">统计</button>
+        <button class="secondary" id="btnHealth">健康</button>
+        <button class="danger" id="btnDeleteSelected">删除选中</button>
+      </div>
+
       <div class="table-wrap">
       <table>
         <colgroup>
           <col style="width:32px">
           <col style="width:54px">
-          <col style="width:156px">
-          <col style="width:140px">
+          <col style="width:270px">
           <col style="width:220px">
-          <col style="width:140px">
-          <col style="width:96px">
-          <col style="width:90px">
-          <col style="width:72px">
+          <col style="width:180px">
+          <col style="width:128px">
           <col style="width:76px">
-          <col style="width:120px">
-          <col style="width:138px">
-          <col style="width:138px">
-          <col style="width:86px">
-          <col style="width:86px">
-          <col style="width:86px">
-          <col style="width:96px">
-          <col style="width:86px">
-          <col style="width:90px">
-          <col style="width:170px">
-          <col style="width:138px">
-          <col style="width:200px">
-          <col style="width:138px">
-          <col style="width:220px">
+          <col style="width:188px">
+          <col style="width:150px">
+          <col style="width:132px">
+          <col style="width:180px">
+          <col style="width:240px">
         </colgroup>
         <thead>
           <tr>
             <th><input id="chkAll" type="checkbox"></th>
             <th>ID</th>
-            <th>Email</th>
-            <th>API Key</th>
+            <th>Account</th>
             <th>Refresh Token</th>
-            <th>ID Token</th>
-            <th>Status</th>
-            <th>Routable</th>
-            <th>Error</th>
-            <th>Err Cnt</th>
-            <th>Cooldown</th>
-            <th>Last Check</th>
-            <th>Last Success</th>
-            <th>Use Cnt</th>
-            <th>Total</th>
-            <th>Used</th>
-            <th>Remain</th>
             <th>Quota</th>
-            <th>Healthy</th>
-            <th>Failures</th>
-            <th>Latency</th>
-            <th>Health Error</th>
-            <th>H Updated</th>
+            <th>Status</th>
+            <th>Use</th>
+            <th>Health</th>
+            <th>Last Activity</th>
+            <th>Cooldown</th>
+            <th>Error</th>
             <th class="action-col">Action</th>
           </tr>
         </thead>
@@ -324,6 +318,6 @@
       </div>
     </div>
   </div>
-  <script src="/assets/js/admin-tokens.js?v=20260219-5"></script>
+  <script src="/assets/js/admin-tokens.js?v=20260220-compact-1"></script>
 </body>
 </html>
