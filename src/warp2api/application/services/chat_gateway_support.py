@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 import uuid
@@ -12,7 +11,7 @@ from pydantic import BaseModel
 from warp2api.adapters.common.logging import logger
 from warp2api.adapters.common.schemas import ChatMessage
 from warp2api.application.services.warp_request_service import execute_warp_packet
-from warp2api.infrastructure.settings.settings import CLIENT_VERSION, OS_VERSION
+from warp2api.infrastructure.settings.settings import CLIENT_VERSION, OS_VERSION, WARP_COMPAT_SESSION_TTL
 
 
 def _get(d: Dict[str, Any], *names: str) -> Any:
@@ -105,7 +104,7 @@ def ensure_tool_ids(state: BridgeState) -> None:
         state.tool_message_id = str(uuid.uuid4())
 
 
-_SESSION_TTL = int(os.getenv("WARP_COMPAT_SESSION_TTL", "1800"))
+_SESSION_TTL = WARP_COMPAT_SESSION_TTL
 STORE = SessionStateStore(ttl_seconds=_SESSION_TTL)
 
 

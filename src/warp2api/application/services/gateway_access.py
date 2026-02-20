@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from typing import Optional
 
@@ -10,19 +9,29 @@ from fastapi import HTTPException, Request, status
 from warp2api.adapters.common.logging import logger
 from warp2api.application.services.chat_gateway_support import packet_template
 from warp2api.application.services.warp_request_service import execute_warp_packet
-from warp2api.infrastructure.settings.settings import CLIENT_VERSION, OS_VERSION
+from warp2api.infrastructure.settings.settings import (
+    CLIENT_VERSION,
+    OS_VERSION,
+    get_api_token,
+    WARP_COMPAT_INIT_DELAY,
+    WARP_COMPAT_INIT_RETRIES,
+    WARP_COMPAT_STARTUP_WARMUP,
+    WARP_COMPAT_WARMUP_DELAY,
+    WARP_COMPAT_WARMUP_RETRIES,
+)
 
-WARMUP_INIT_RETRIES = int(os.getenv("WARP_COMPAT_INIT_RETRIES", "10"))
-WARMUP_INIT_DELAY_S = float(os.getenv("WARP_COMPAT_INIT_DELAY", "0.5"))
-WARMUP_REQUEST_RETRIES = int(os.getenv("WARP_COMPAT_WARMUP_RETRIES", "3"))
-WARMUP_REQUEST_DELAY_S = float(os.getenv("WARP_COMPAT_WARMUP_DELAY", "1.5"))
+WARMUP_INIT_RETRIES = WARP_COMPAT_INIT_RETRIES
+WARMUP_INIT_DELAY_S = WARP_COMPAT_INIT_DELAY
+WARMUP_REQUEST_RETRIES = WARP_COMPAT_WARMUP_RETRIES
+WARMUP_REQUEST_DELAY_S = WARP_COMPAT_WARMUP_DELAY
+WARMUP_ENABLED = WARP_COMPAT_STARTUP_WARMUP
 
 _initialized = False
 _init_lock = asyncio.Lock()
 
 
 def _get_expected_token() -> Optional[str]:
-    token = (os.getenv("API_TOKEN") or "").strip()
+    token = get_api_token()
     return token or None
 
 
@@ -63,6 +72,11 @@ async def initialize_once() -> None:
 
     async with _init_lock:
         if _initialized:
+            return
+
+        if not WARMUP_ENABLED:
+            _initialized = True
+            logger.info("[Gateway] Startup warmup disabled (WARP_COMPAT_STARTUP_WARMUP=false)")
             return
 
         # Warm-up the unified protobuf transport path directly.

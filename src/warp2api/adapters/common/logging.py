@@ -4,10 +4,9 @@
 
 import logging
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
+from warp2api.infrastructure.settings.settings import LOGS_DIR
 
-LOG_DIR = Path("logs")
-LOG_DIR.mkdir(exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 _logger = logging.getLogger("warp2api.adapters")
 _logger.setLevel(logging.INFO)
@@ -16,7 +15,7 @@ for handler in _logger.handlers[:]:
     _logger.removeHandler(handler)
 
 file_handler = RotatingFileHandler(
-    LOG_DIR / "gateway_compat.log",
+    LOGS_DIR / "gateway_compat.log",
     maxBytes=5 * 1024 * 1024,
     backupCount=3,
     encoding="utf-8",

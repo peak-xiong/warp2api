@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import os
-
 from fastapi import HTTPException, Request, status
+
+from warp2api.infrastructure.settings.settings import get_admin_auth_mode, get_admin_token
 
 
 def _get_admin_token() -> str:
-    return (os.getenv("ADMIN_TOKEN") or "").strip()
+    return get_admin_token()
 
 
 def _auth_mode() -> str:
-    mode = (os.getenv("WARP_ADMIN_AUTH_MODE") or "token").strip().lower()
+    mode = get_admin_auth_mode()
     if mode in {"off", "local", "token"}:
         return mode
     return "token"

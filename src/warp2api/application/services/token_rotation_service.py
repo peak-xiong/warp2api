@@ -1,39 +1,66 @@
 from __future__ import annotations
 
-import os
-from datetime import datetime, timedelta, timezone
+import asyncio
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from warp2api.infrastructure.settings.settings import CLIENT_VERSION, OS_VERSION
+from warp2api.infrastructure.settings.settings import (
+    CLIENT_VERSION,
+    OS_VERSION,
+    WARP_REQUEST_RETRY_BASE_DELAY_MS,
+    WARP_REQUEST_RETRY_COUNT,
+    WARP_TOKEN_COOLDOWN_SECONDS,
+    WARP_TOKEN_UNHEALTHY_FAILURE_THRESHOLD,
+)
 from warp2api.infrastructure.auth.jwt_auth import refresh_jwt_token
 from warp2api.observability.logging import logger
 
 from warp2api.application.services.token_lock_service import token_lock
+from warp2api.application.services.token_pool_service import get_token_pool_service
 from warp2api.infrastructure.protobuf.minimal_request import build_minimal_warp_request
 from warp2api.infrastructure.token_pool.repository import get_token_repository
 from warp2api.infrastructure.transport.warp_transport import send_warp_protobuf_request
 
-_QUOTA_COOLDOWN_SECONDS = int(os.getenv("WARP_TOKEN_COOLDOWN_SECONDS", "600"))
-_COOLDOWN_SECONDS = int(os.getenv("WARP_TOKEN_ERROR_COOLDOWN_SECONDS", "180"))
-_UNHEALTHY_FAILURE_THRESHOLD = int(os.getenv("WARP_TOKEN_UNHEALTHY_FAILURE_THRESHOLD", "3"))
+_UNHEALTHY_FAILURE_THRESHOLD = WARP_TOKEN_UNHEALTHY_FAILURE_THRESHOLD
+_REQUEST_RETRY_COUNT = WARP_REQUEST_RETRY_COUNT
+_REQUEST_RETRY_BASE_DELAY_MS = WARP_REQUEST_RETRY_BASE_DELAY_MS
+
+
+def _is_retryable_result(result: Dict[str, Any]) -> bool:
+    if result.get("ok"):
+        return False
+    status = int(result.get("status_code") or 0)
+    err = str(result.get("error") or "").lower()
+    if status in {0, 408, 425, 429, 500, 502, 503, 504}:
+        return True
+    retry_markers = (
+        "failed to fetch",
+        "timeout",
+        "timed out",
+        "temporarily unavailable",
+        "connection refused",
+        "connection reset",
+        "something went wrong with this conversation",
+    )
+    return any(m in err for m in retry_markers)
 
 
 def _should_rotate_token(result: Dict[str, Any]) -> bool:
     status = int(result.get("status_code") or 0)
     err = str(result.get("error") or "").lower()
-    if status in (401, 403, 429):
+    if status in (0, 401, 403, 429) or status >= 500:
         return True
     return (
         "no remaining quota" in err
         or "no ai requests remaining" in err
         or "invalid api key" in err
+        or "failed to fetch" in err
+        or "timed out" in err
+        or "timeout" in err
+        or "connection refused" in err
+        or "connection reset" in err
+        or "something went wrong with this conversation" in err
     )
-
-
-def _is_quota_error(result: Dict[str, Any]) -> bool:
-    status = int(result.get("status_code") or 0)
-    err = str(result.get("error") or "").lower()
-    return status == 429 or "no remaining quota" in err or "no ai requests remaining" in err
 
 
 def _parse_iso(ts: Optional[str]) -> float:
@@ -46,31 +73,6 @@ def _parse_iso(ts: Optional[str]) -> float:
         return 0.0
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _future_iso(seconds: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
-
-
-def _status_from_result(result: Dict[str, Any]) -> str:
-    status = int(result.get("status_code") or 0)
-    err = str(result.get("error") or "").lower()
-
-    if _is_quota_error(result):
-        return "quota_exhausted"
-    if status == 403:
-        return "blocked"
-    if status in (401, 429):
-        return "cooldown"
-    if status >= 500:
-        return "cooldown"
-    if "invalid_grant" in err:
-        return "blocked"
-    return "active"
-
-
 def _select_pool_candidates(max_token_attempts: int) -> List[Dict[str, Any]]:
     repo = get_token_repository()
     now_ts = datetime.now(timezone.utc).timestamp()
@@ -80,7 +82,8 @@ def _select_pool_candidates(max_token_attempts: int) -> List[Dict[str, Any]]:
 
     for row in rows:
         status = str(row.get("status") or "").strip()
-        if status in {"disabled", "blocked", "quota_exhausted"}:
+        # Strict routing: only active tokens are eligible for model traffic.
+        if status != "active":
             continue
 
         cooldown_until = str(row.get("cooldown_until") or "").strip()
@@ -130,92 +133,6 @@ def _select_pool_candidates(max_token_attempts: int) -> List[Dict[str, Any]]:
     return rotated[:max(1, max_token_attempts)]
 
 
-def _apply_pool_result(token_id: int, result: Dict[str, Any]) -> None:
-    repo = get_token_repository()
-    now = _now_iso()
-    token = repo.get_token(token_id)
-    if not token:
-        return
-
-    curr_err = int(token.get("error_count") or 0)
-    err_msg = str(result.get("error") or "")[:240]
-    err_code = str(result.get("status_code") or "")
-    status = _status_from_result(result)
-
-    if result.get("ok"):
-        repo.increment_use_count(token_id)
-        repo.update_token(
-            token_id,
-            status="active",
-            error_count=0,
-            last_error_code="",
-            last_error_message="",
-            last_success_at=now,
-            last_check_at=now,
-            cooldown_until="",
-        )
-        repo.append_audit_log(
-            action="runtime_send",
-            actor="runtime",
-            token_id=token_id,
-            result="ok",
-            detail=f"status={result.get('status_code')}",
-        )
-        return
-
-    next_err = curr_err + 1
-    cooldown_until = ""
-    if status == "cooldown":
-        cooldown_until = _future_iso(_COOLDOWN_SECONDS)
-    if status == "quota_exhausted":
-        cooldown_until = _future_iso(_QUOTA_COOLDOWN_SECONDS)
-
-    repo.update_token(
-        token_id,
-        status=status,
-        error_count=next_err,
-        last_error_code=err_code,
-        last_error_message=err_msg,
-        last_check_at=now,
-        cooldown_until=cooldown_until,
-    )
-    repo.append_audit_log(
-        action="runtime_send",
-        actor="runtime",
-        token_id=token_id,
-        result="failed",
-        detail=f"status={result.get('status_code')} mapped_status={status} err={err_msg}",
-    )
-
-
-def _apply_pool_refresh_error(token_id: int, error: Exception) -> None:
-    repo = get_token_repository()
-    now = _now_iso()
-    token = repo.get_token(token_id)
-    if not token:
-        return
-    curr_err = int(token.get("error_count") or 0)
-    msg = str(error)[:240]
-    status = "blocked" if "invalid_grant" in msg.lower() else "cooldown"
-    cooldown_until = "" if status == "blocked" else _future_iso(_COOLDOWN_SECONDS)
-    repo.update_token(
-        token_id,
-        status=status,
-        error_count=curr_err + 1,
-        last_error_code="refresh_error",
-        last_error_message=msg,
-        last_check_at=now,
-        cooldown_until=cooldown_until,
-    )
-    repo.append_audit_log(
-        action="runtime_refresh",
-        actor="runtime",
-        token_id=token_id,
-        result="failed",
-        detail=f"mapped_status={status} err={msg}",
-    )
-
-
 def get_token_pool_status() -> Dict[str, Any]:
     repo = get_token_repository()
     items = repo.list_tokens()
@@ -238,7 +155,7 @@ def get_token_pool_status() -> Dict[str, Any]:
 
     return {
         "token_count": len(out),
-        "cooldown_seconds": _QUOTA_COOLDOWN_SECONDS,
+        "cooldown_seconds": WARP_TOKEN_COOLDOWN_SECONDS,
         "tokens": out,
         "by_status": repo.statistics().get("by_status", {}),
     }
@@ -276,15 +193,22 @@ async def send_protobuf_with_rotation(
     candidates = _select_pool_candidates(max_token_attempts=max_token_attempts)
 
     if not candidates:
+        repo = get_token_repository()
+        total_tokens = int((repo.statistics() or {}).get("total", 0) or 0)
+        if total_tokens == 0:
+            err = "token pool has no token account configured, please import accounts in /admin/tokens"
+        else:
+            err = "token pool has no active token available, please check token status in /admin/tokens"
         return {
             "ok": False,
             "status_code": 503,
-            "error": "token pool is empty or no active token available",
+            "error": err,
             "attempts": attempts,
             "model_tag": model_tag,
         }
 
     for candidate in candidates:
+        pool = get_token_pool_service()
         token_id = int(candidate["id"])
         refresh_token = candidate["refresh_token"]
         repo = get_token_repository()
@@ -297,31 +221,50 @@ async def send_protobuf_with_rotation(
                 if not jwt:
                     raise RuntimeError("refresh returned empty token")
 
-                result = send_warp_protobuf_request(
-                    body=protobuf_bytes,
-                    jwt=jwt,
-                    timeout_seconds=timeout_seconds,
-                    client_version=client_version or CLIENT_VERSION,
-                    os_version=os_version or OS_VERSION,
-                )
-                _apply_pool_result(token_id, result)
-                attempts.append(
-                    {
-                        "mode": "token_pool",
-                        "token_id": token_id,
-                        "status_code": result.get("status_code"),
-                        "error": str(result.get("error") or "")[:200],
-                    }
-                )
-                last_result = result
+                final_result: Dict[str, Any] = {"ok": False, "status_code": 502, "error": "request not executed"}
+                for req_try in range(1, _REQUEST_RETRY_COUNT + 1):
+                    try:
+                        result = send_warp_protobuf_request(
+                            body=protobuf_bytes,
+                            jwt=jwt,
+                            timeout_seconds=timeout_seconds,
+                            client_version=client_version or CLIENT_VERSION,
+                            os_version=os_version or OS_VERSION,
+                        )
+                    except Exception as exc:
+                        result = {"ok": False, "status_code": 0, "error": str(exc)}
 
-                if result.get("ok") or not _should_rotate_token(result):
-                    result["attempts"] = attempts
+                    final_result = result
+                    err_info = pool.parse_runtime_request_error(result)
+                    attempts.append(
+                        {
+                            "mode": "token_pool",
+                            "token_id": token_id,
+                            "try": req_try,
+                            "status_code": result.get("status_code"),
+                            "error_code": err_info["code"],
+                            "error": err_info["message"][:200],
+                        }
+                    )
+                    last_result = result
+
+                    if result.get("ok"):
+                        break
+                    if req_try >= _REQUEST_RETRY_COUNT or not _is_retryable_result(result):
+                        break
+
+                    delay_s = (_REQUEST_RETRY_BASE_DELAY_MS * req_try) / 1000.0
+                    if delay_s > 0:
+                        await asyncio.sleep(delay_s)
+
+                pool.mark_runtime_request_result(token_id, final_result, actor="runtime")
+                if final_result.get("ok") or not _should_rotate_token(final_result):
+                    final_result["attempts"] = attempts
                     if model_tag is not None:
-                        result["model_tag"] = model_tag
-                    return result
+                        final_result["model_tag"] = model_tag
+                    return final_result
         except Exception as exc:
-            _apply_pool_refresh_error(token_id, exc)
+            pool.mark_runtime_refresh_error(token_id, exc, actor="runtime")
             attempts.append(
                 {
                     "mode": "token_pool",

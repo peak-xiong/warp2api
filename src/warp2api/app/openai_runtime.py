@@ -4,39 +4,24 @@
 
 from __future__ import annotations
 
-import asyncio
-import os
-
+from warp2api.infrastructure.settings.settings import HOST, PORT
 from .openai import gateway_app
 
 
 def _resolve_port(cli_port: int | None = None) -> int:
     if cli_port is not None:
         return int(cli_port)
-    raw = (os.getenv("PORT") or "").strip()
-    if raw:
-        try:
-            return int(raw)
-        except Exception:
-            pass
-    return 28889
+    return PORT
 
 
 def run_gateway_server(port: int | None = None, reload: bool = False) -> None:
     import uvicorn
     resolved_port = _resolve_port(port)
 
-    # Refresh JWT on startup before running the server
-    try:
-        from warp2api.infrastructure.auth.jwt_auth import refresh_jwt_if_needed as _refresh_jwt
-        asyncio.run(_refresh_jwt())
-    except Exception:
-        pass
-
     if reload:
         uvicorn.run(
             "warp2api.app.openai:gateway_app",
-            host=os.getenv("HOST", "127.0.0.1"),
+            host=HOST,
             port=resolved_port,
             log_level="info",
             reload=True,
@@ -45,7 +30,7 @@ def run_gateway_server(port: int | None = None, reload: bool = False) -> None:
     else:
         uvicorn.run(
             gateway_app,
-            host=os.getenv("HOST", "127.0.0.1"),
+            host=HOST,
             port=resolved_port,
             log_level="info",
         )

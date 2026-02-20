@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -46,7 +47,10 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        await shutdown_tasks()
+        try:
+            await shutdown_tasks()
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="warp2api Multi-Protocol Gateway", lifespan=lifespan)

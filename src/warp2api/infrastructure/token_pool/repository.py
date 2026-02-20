@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-from warp2api.infrastructure.settings.settings import ROOT_DIR
+from warp2api.infrastructure.settings.settings import ROOT_DIR, get_token_db_path
 from warp2api.observability.logging import logger
 
 
@@ -591,7 +590,7 @@ _repo_db_path: Optional[str] = None
 
 def get_token_repository() -> TokenRepository:
     global _repo_singleton, _repo_db_path
-    db_path = (os.getenv("WARP_TOKEN_DB_PATH") or "").strip() or None
+    db_path = get_token_db_path()
     if _repo_singleton is None or db_path != _repo_db_path:
         _repo_singleton = TokenRepository(db_path=db_path)
         _repo_db_path = db_path

@@ -7,7 +7,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
-from warp2api.infrastructure.auth.jwt_auth import get_jwt_token, is_token_expired, refresh_jwt_if_needed
+from warp2api.application.services.token_pool_service import get_token_pool_service
 from warp2api.observability.logging import logger
 
 router = APIRouter()
@@ -16,23 +16,20 @@ router = APIRouter()
 @router.get("/api/auth/status")
 async def get_auth_status():
     try:
-        jwt_token = get_jwt_token()
-        if not jwt_token:
-            return {
-                "authenticated": False,
-                "message": "未找到JWT token",
-                "suggestion": "运行 'uv run refresh_jwt.py' 获取token",
-            }
-        is_expired = is_token_expired(jwt_token)
+        svc = get_token_pool_service()
+        readiness = svc.readiness()
+        stats = svc.statistics()
+        total = int(stats.get("total", 0) or 0)
+        available = int(readiness.get("available_tokens", 0) or 0)
         result = {
-            "authenticated": not is_expired,
-            "token_present": True,
-            "token_expired": is_expired,
-            "token_preview": f"{jwt_token[:20]}...{jwt_token[-10:]}",
-            "message": "Token有效" if not is_expired else "Token已过期",
+            "authenticated": bool(readiness.get("ready")),
+            "pool_total_tokens": total,
+            "pool_available_tokens": available,
+            "readiness": readiness,
+            "message": "Token pool ready" if readiness.get("ready") else "Token pool not ready",
         }
-        if is_expired:
-            result["suggestion"] = "运行 'uv run refresh_jwt.py' 刷新token"
+        if not readiness.get("ready"):
+            result["suggestion"] = "请在 /admin/tokens 导入并刷新可用账号"
         return result
     except Exception as e:
         logger.error(f"❌ 获取认证状态失败: {e}")
@@ -42,13 +39,16 @@ async def get_auth_status():
 @router.post("/api/auth/refresh")
 async def refresh_auth_token():
     try:
-        success = await refresh_jwt_if_needed()
+        svc = get_token_pool_service()
+        summary = await svc.refresh_all(actor="system:auth_route")
+        success = int(summary.get("failed", 0) or 0) == 0 and int(summary.get("success", 0) or 0) > 0
         if success:
-            return {"success": True, "message": "JWT token刷新成功", "timestamp": datetime.now().isoformat()}
+            return {"success": True, "message": "Token pool刷新成功", "timestamp": datetime.now().isoformat(), "data": summary}
         return {
             "success": False,
-            "message": "JWT token刷新失败",
-            "suggestion": "检查网络连接或手动运行 'uv run refresh_jwt.py'",
+            "message": "Token pool刷新存在失败",
+            "data": summary,
+            "suggestion": "检查 /admin/tokens 中 blocked/cooldown 账号",
         }
     except Exception as e:
         logger.error(f"❌ 刷新JWT token失败: {e}")
@@ -58,12 +58,13 @@ async def refresh_auth_token():
 @router.get("/api/auth/user_id")
 async def get_user_id_endpoint():
     try:
-        from warp2api.infrastructure.auth.jwt_auth import get_user_id
-
-        user_id = get_user_id()
-        if user_id:
-            return {"success": True, "user_id": user_id, "message": "User ID获取成功"}
-        return {"success": False, "user_id": "", "message": "未找到User ID，可能需要刷新JWT token"}
+        svc = get_token_pool_service()
+        tokens = svc.list_tokens()
+        active = [t for t in tokens if str(t.get("status") or "") == "active"]
+        email = str((active[0].get("email") if active else "") or "")
+        if email:
+            return {"success": True, "user_id": email, "message": "User ID获取成功（email）"}
+        return {"success": False, "user_id": "", "message": "未找到可用账户标识"}
     except Exception as e:
         logger.error(f"❌ 获取User ID失败: {e}")
         raise HTTPException(500, f"获取User ID失败: {e}")

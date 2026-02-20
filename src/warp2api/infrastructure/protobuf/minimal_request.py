@@ -3,12 +3,6 @@ from __future__ import annotations
 import time
 from typing import Dict, Optional
 
-from warp2api.infrastructure.settings.settings import CLIENT_VERSION, OS_VERSION
-from warp2api.observability.logging import logger
-
-from warp2api.infrastructure.transport.warp_transport import send_warp_protobuf_request
-
-
 def _enc_varint(v: int) -> bytes:
     out = bytearray()
     x = int(v)
@@ -107,19 +101,7 @@ def send_minimal_warp_query(
     client_version: Optional[str] = None,
     os_version: Optional[str] = None,
 ) -> Dict[str, object]:
-    body = build_minimal_warp_request(query=query, model_tag=model_tag)
-    result = send_warp_protobuf_request(
-        body=body,
-        jwt=jwt,
-        timeout_seconds=timeout_seconds,
-        client_version=client_version or CLIENT_VERSION,
-        os_version=os_version or OS_VERSION,
+    raise RuntimeError(
+        "send_minimal_warp_query is removed. "
+        "Use token_rotation_service.send_query_with_rotation (SSOT path)."
     )
-    result["model_tag"] = model_tag
-    logger.info(
-        "minimal proxy finished: status=%s events=%s text_len=%s",
-        result.get("status_code"),
-        result.get("events_count"),
-        len(result.get("text") or ""),
-    )
-    return result

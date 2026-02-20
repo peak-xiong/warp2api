@@ -10,11 +10,16 @@ health snapshots for API diagnostics.
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from typing import Dict, Optional
 
 from warp2api.application.services.token_pool_service import get_token_pool_service
+from warp2api.infrastructure.settings.settings import (
+    WARP_POOL_MONITOR_INTERVAL_SECONDS,
+    WARP_POOL_MONITOR_MAX_PARALLEL,
+    WARP_POOL_QUOTA_RETRY_LEAD_SECONDS,
+    WARP_POOL_TOKEN_REFRESH_INTERVAL_SECONDS,
+)
 from warp2api.infrastructure.token_pool.repository import get_token_repository
 from warp2api.observability.logging import logger
 
@@ -23,46 +28,20 @@ _MONITOR_TASK: Optional[asyncio.Task] = None
 _STOP_EVENT: Optional[asyncio.Event] = None
 
 
-def _int_env(name: str, default: int, min_value: int = 1, max_value: int = 86400) -> int:
-    raw = (os.getenv(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except Exception:
-        value = default
-    if value < min_value:
-        return min_value
-    if value > max_value:
-        return max_value
-    return value
-
-
 def _monitor_interval_seconds() -> int:
-    # Main scheduler tick; short enough for near-real-time state convergence.
-    return _int_env(
-        "WARP_POOL_MONITOR_INTERVAL_SECONDS",
-        default=_int_env(
-            "WARP_POOL_REFRESH_INTERVAL_SECONDS",
-            default=_int_env("WARP_POOL_HEALTH_INTERVAL_SECONDS", default=120, min_value=10),
-            min_value=10,
-        ),
-        min_value=10,
-    )
+    return WARP_POOL_MONITOR_INTERVAL_SECONDS
 
 
 def _per_token_refresh_interval_seconds() -> int:
-    # Minimum gap between two monitor refreshes for the same token.
-    return _int_env("WARP_POOL_TOKEN_REFRESH_INTERVAL_SECONDS", default=180, min_value=30)
+    return WARP_POOL_TOKEN_REFRESH_INTERVAL_SECONDS
 
 
 def _max_parallel_checks() -> int:
-    return _int_env("WARP_POOL_MONITOR_MAX_PARALLEL", default=3, min_value=1, max_value=32)
+    return WARP_POOL_MONITOR_MAX_PARALLEL
 
 
 def _quota_retry_lead_seconds() -> int:
-    # When quota exhausted, re-check close to next refresh window.
-    return _int_env("WARP_POOL_QUOTA_RETRY_LEAD_SECONDS", default=300, min_value=30, max_value=3600)
+    return WARP_POOL_QUOTA_RETRY_LEAD_SECONDS
 
 
 def _parse_ts(raw: object) -> float:
@@ -203,6 +182,9 @@ async def stop_monitor() -> None:
 
     try:
         await _MONITOR_TASK
+    except asyncio.CancelledError:
+        # Graceful shutdown during server stop/reload.
+        pass
     except Exception:
         pass
 

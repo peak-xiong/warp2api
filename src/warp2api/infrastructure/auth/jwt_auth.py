@@ -10,12 +10,10 @@ import base64
 import json
 import os
 import time
-from urllib.parse import parse_qs
 from typing import Optional, List
 import httpx
 
 from warp2api.infrastructure.settings.settings import (
-    REFRESH_TOKEN_B64,
     REFRESH_URL,
     SECURETOKEN_URL,
     CLIENT_VERSION,
@@ -23,6 +21,7 @@ from warp2api.infrastructure.settings.settings import (
     OS_NAME,
     OS_VERSION,
     STRICT_ENV,
+    get_env_warp_jwt,
 )
 from warp2api.observability.logging import logger
 
@@ -61,16 +60,6 @@ def _token_value(token_data: dict) -> str:
     return str(token_data.get("access_token") or token_data.get("id_token") or "").strip()
 
 
-def _extract_refresh_token_from_b64_payload() -> str:
-    try:
-        raw = base64.b64decode(REFRESH_TOKEN_B64).decode("utf-8", errors="ignore")
-        parsed = parse_qs(raw)
-        vals = parsed.get("refresh_token", [])
-        return (vals[0] if vals else "").strip()
-    except Exception:
-        return ""
-
-
 def _split_refresh_tokens(raw: str) -> List[str]:
     if not raw:
         return []
@@ -96,8 +85,6 @@ def get_refresh_token_candidates(refresh_token_override: Optional[str] = None) -
             ordered.append(t)
 
     _add(refresh_token_override)
-    if REFRESH_TOKEN_B64:
-        _add(_extract_refresh_token_from_b64_payload())
     return ordered
 
 
@@ -152,18 +139,18 @@ async def _refresh_via_securetoken(refresh_token: str) -> dict:
 async def refresh_jwt_token(refresh_token_override: Optional[str] = None) -> dict:
     """Refresh JWT using refresh token.
 
-    Priority: explicit refresh token > WARP_REFRESH_TOKEN_B64.
+    Priority: explicit refresh token only.
     Refresh flow priority: securetoken endpoint.
     """
     logger.info("Refreshing JWT token...")
     refresh_candidates = get_refresh_token_candidates(refresh_token_override)
     if not refresh_candidates:
-        msg = "No refresh token available for JWT refresh"
+        msg = "No refresh token available for JWT refresh (token pool account not configured)"
         if STRICT_ENV:
             logger.error("%s (STRICT_ENV enabled)", msg)
             raise RuntimeError(msg)
         logger.error(msg)
-        return {}
+        return {"error": msg}
     last_error: Optional[str] = None
     for idx, refresh_token in enumerate(refresh_candidates, start=1):
         try:
@@ -175,7 +162,7 @@ async def refresh_jwt_token(refresh_token_override: Optional[str] = None) -> dic
             last_error = f"securetoken: {e}"
             logger.warning("Securetoken refresh failed for candidate %s/%s: %s", idx, len(refresh_candidates), e)
     logger.error("Error refreshing token with all candidates: %s", last_error or "unknown")
-    return {}
+    return {"error": last_error or "unknown"}
 
 
 def update_env_file(new_jwt: str) -> bool:
@@ -186,8 +173,10 @@ def update_env_file(new_jwt: str) -> bool:
     except Exception as e:
         logger.error(f"Error updating JWT token: {e}")
         return False
+
+
 async def check_and_refresh_token() -> bool:
-    current_jwt = os.getenv("WARP_JWT")
+    current_jwt = get_env_warp_jwt()
     if not current_jwt:
         logger.warning("No JWT token found in environment")
         token_data = await refresh_jwt_token()
@@ -232,19 +221,19 @@ async def check_and_refresh_token() -> bool:
 async def get_valid_jwt() -> str:
     from dotenv import load_dotenv as _load
     _load(override=True)
-    jwt = os.getenv("WARP_JWT")
+    jwt = get_env_warp_jwt()
     if not jwt:
         logger.info("No JWT token found, attempting to refresh...")
         if await check_and_refresh_token():
             _load(override=True)
-            jwt = os.getenv("WARP_JWT")
+            jwt = get_env_warp_jwt()
         if not jwt:
             raise RuntimeError("WARP_JWT is not set and refresh failed")
     if is_token_expired(jwt, buffer_minutes=2):
         logger.info("JWT token is expired or expiring soon, attempting to refresh...")
         if await check_and_refresh_token():
             _load(override=True)
-            jwt = os.getenv("WARP_JWT")
+            jwt = get_env_warp_jwt()
             if not jwt or is_token_expired(jwt, buffer_minutes=0):
                 logger.warning("Warning: New token has short expiry but proceeding anyway")
         else:
@@ -253,9 +242,7 @@ async def get_valid_jwt() -> str:
 
 
 def get_jwt_token() -> str:
-    from dotenv import load_dotenv as _load
-    _load()
-    return os.getenv("WARP_JWT", "")
+    return get_env_warp_jwt()
 
 
 async def refresh_jwt_if_needed() -> bool:
@@ -381,7 +368,7 @@ async def acquire_anonymous_access_token() -> str:
 
 
 def print_token_info():
-    current_jwt = os.getenv("WARP_JWT")
+    current_jwt = get_env_warp_jwt()
     if not current_jwt:
         logger.info("No JWT token found")
         return

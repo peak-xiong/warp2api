@@ -59,7 +59,7 @@ async def admin_add_token(payload: AddTokenRequest, request: Request):
     await require_admin_auth(request)
     svc = get_token_pool_service()
     actor = request.headers.get("x-admin-actor") or "admin"
-    result = svc.add_token(payload.token, actor=actor)
+    result = await svc.batch_import_and_hydrate([payload.token], actor=actor)
     return {"success": True, "data": result}
 
 
@@ -78,7 +78,7 @@ async def admin_batch_import_tokens(payload: BatchImportRequest, request: Reques
         items = [TokenAccountImportItem.model_validate(x).model_dump() for x in raw_accounts]
         result = svc.batch_import_accounts(items, actor=actor)
     else:
-        result = svc.batch_import(payload.tokens, actor=actor)
+        result = await svc.batch_import_and_hydrate(payload.tokens, actor=actor)
     return {"success": True, "data": result}
 
 
