@@ -79,6 +79,45 @@ def test_quota_error_sets_quota_exhausted(monkeypatch, tmp_path: Path):
     token = repo.get_token(token_id)
     assert token is not None
     assert token["status"] == "quota_exhausted"
+    assert token["quota_remaining"] == 0
+
+
+def test_429_without_quota_text_sets_cooldown(monkeypatch, tmp_path: Path):
+    db_path = tmp_path / "token_pool2b.db"
+    monkeypatch.setenv("WARP_TOKEN_DB_PATH", str(db_path))
+
+    svc = get_token_pool_service()
+    svc.batch_import(["rt-test-002b"], actor="test")
+    token_id = svc.list_tokens()[0]["id"]
+
+    async def _fake_refresh(*args, **kwargs):
+        return {"access_token": "jwt-ok"}
+
+    def _fake_send(**kwargs):
+        return {"ok": False, "status_code": 429, "error": "Too Many Requests"}
+
+    monkeypatch.setattr(
+        "warp2api.application.services.token_rotation_service.refresh_jwt_token",
+        _fake_refresh,
+    )
+    monkeypatch.setattr(
+        "warp2api.application.services.token_rotation_service.send_warp_protobuf_request",
+        _fake_send,
+    )
+
+    result = asyncio.run(
+        send_protobuf_with_rotation(
+            protobuf_bytes=b"abc",
+            timeout_seconds=10,
+            max_token_attempts=1,
+            model_tag="auto",
+        )
+    )
+    assert result["ok"] is False
+    repo = get_token_repository()
+    token = repo.get_token(token_id)
+    assert token is not None
+    assert token["status"] == "cooldown"
 
 
 def test_token_lock_serializes_same_token(monkeypatch, tmp_path: Path):

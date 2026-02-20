@@ -43,9 +43,71 @@ function sanitizeForLog(input, depth = 0) {
   return input;
 }
 
+function summarizeTokenSnapshot(t) {
+  if (!t || typeof t !== "object") return null;
+  const quotaLimit = t.quota_limit ?? t.total_limit;
+  const quotaUsed = t.quota_used ?? t.used_limit;
+  const quotaRemain = t.quota_remaining != null
+    ? t.quota_remaining
+    : (quotaLimit != null && quotaUsed != null ? Math.max(0, Number(quotaLimit) - Number(quotaUsed)) : null);
+  const routable = accountRoutableState(t);
+  const reason = cellValue(t.last_error_message || t.health_last_error || "");
+  return {
+    id: t.id,
+    status: cellValue(t.status),
+    routable: routable.ok,
+    routable_reason: routable.reason,
+    quota: {
+      used: quotaUsed ?? null,
+      limit: quotaLimit ?? null,
+      remaining: quotaRemain ?? null,
+      next_refresh_time: t.quota_next_refresh_time || "",
+      refresh_duration: t.quota_refresh_duration || "",
+    },
+    health: {
+      healthy: t.healthy,
+      latency_ms: t.health_latency_ms ?? null,
+      consecutive_failures: t.health_consecutive_failures ?? 0,
+    },
+    last_error: {
+      code: cellValue(t.last_error_code),
+      message: reason === "-" ? "" : reason,
+    },
+    last_check_at: t.last_check_at || t.health_last_checked_at || "",
+    last_success_at: t.last_success_at || t.health_last_success_at || "",
+  };
+}
+
+function summarizeLogPayload(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  if (obj.token && typeof obj.token === "object") {
+    return {
+      success: !!obj.success,
+      token: summarizeTokenSnapshot(obj.token),
+    };
+  }
+  if (Array.isArray(obj.data)) {
+    return {
+      count: obj.data.length,
+      sample: obj.data.slice(0, 3).map((x) => summarizeTokenSnapshot(x)).filter(Boolean),
+    };
+  }
+  if (obj.data && obj.data.token) {
+    return {
+      success: !!obj.success,
+      data: {
+        success: !!obj.data.success,
+        token: summarizeTokenSnapshot(obj.data.token),
+      },
+    };
+  }
+  return obj;
+}
+
 function log(msg, obj) {
   const el = document.getElementById("console");
-  const line = obj ? `${msg}\n${JSON.stringify(sanitizeForLog(obj), null, 2)}` : msg;
+  const payload = obj ? summarizeLogPayload(obj) : null;
+  const line = payload ? `${msg}\n${JSON.stringify(sanitizeForLog(payload), null, 2)}` : msg;
   el.textContent = line;
 }
 

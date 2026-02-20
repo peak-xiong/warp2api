@@ -45,10 +45,19 @@ def _is_retryable_result(result: Dict[str, Any]) -> bool:
     return any(m in err for m in retry_markers)
 
 
+def _is_model_not_allowed_error(result: Dict[str, Any]) -> bool:
+    err = str(result.get("error") or "").lower()
+    return (
+        "requested base model" in err and "is not allowed for your account" in err
+    ) or ("model" in err and "not allowed for your account" in err)
+
+
 def _should_rotate_token(result: Dict[str, Any]) -> bool:
     status = int(result.get("status_code") or 0)
     err = str(result.get("error") or "").lower()
     if status in (0, 401, 403, 429) or status >= 500:
+        return True
+    if _is_model_not_allowed_error(result):
         return True
     return (
         "no remaining quota" in err

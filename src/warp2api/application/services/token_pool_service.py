@@ -208,6 +208,13 @@ class TokenPoolService:
         }
 
     @staticmethod
+    def _is_quota_exhausted_error(status: int, err: str) -> bool:
+        low = (err or "").lower()
+        if "no remaining quota" in low or "no ai requests remaining" in low:
+            return True
+        return status == 429 and ("quota" in low and ("exhaust" in low or "remain" in low))
+
+    @staticmethod
     def parse_runtime_request_error(result: Dict[str, Any]) -> Dict[str, str]:
         status = int(result.get("status_code") or 0)
         raw = str(result.get("error") or "").strip()
@@ -217,7 +224,7 @@ class TokenPoolService:
             return {"code": "invalid_refresh_token", "message": "INVALID_REFRESH_TOKEN"}
         if "invalid_grant" in low:
             return {"code": "invalid_grant", "message": "INVALID_GRANT"}
-        if "no remaining quota" in low or "no ai requests remaining" in low:
+        if TokenPoolService._is_quota_exhausted_error(status, low):
             return {"code": "quota_exhausted", "message": "NO_REMAINING_QUOTA"}
         if "failed to fetch" in low:
             return {"code": "failed_to_fetch", "message": "Failed to fetch"}
@@ -243,7 +250,7 @@ class TokenPoolService:
     def status_from_runtime_result(result: Dict[str, Any]) -> str:
         status = int(result.get("status_code") or 0)
         err = str(result.get("error") or "").lower()
-        is_quota = status == 429 or "no remaining quota" in err or "no ai requests remaining" in err
+        is_quota = TokenPoolService._is_quota_exhausted_error(status, err)
         if is_quota:
             return "quota_exhausted"
         if status == 0:
@@ -519,14 +526,28 @@ class TokenPoolService:
         if status == "quota_exhausted":
             cooldown_until = _future_iso(WARP_TOKEN_COOLDOWN_SECONDS)
 
+        update_fields = {
+            "status": status,
+            "error_count": next_err,
+            "last_error_code": err_code,
+            "last_error_message": err_msg,
+            "last_check_at": now,
+            "cooldown_until": cooldown_until,
+        }
+        # Keep quota state explicit for UI/scheduler if upstream says token quota is exhausted.
+        if status == "quota_exhausted":
+            q_limit = token.get("quota_limit")
+            t_limit = token.get("total_limit")
+            limit = q_limit if q_limit is not None else t_limit
+            update_fields["quota_remaining"] = 0
+            update_fields["quota_updated_at"] = now
+            if isinstance(limit, int) and limit >= 0:
+                update_fields["quota_used"] = limit
+                update_fields["used_limit"] = limit
+
         self.repo.update_token(
             token_id,
-            status=status,
-            error_count=next_err,
-            last_error_code=err_code,
-            last_error_message=err_msg,
-            last_check_at=now,
-            cooldown_until=cooldown_until,
+            **update_fields,
         )
         self.repo.append_audit_log(
             action="runtime_send",
