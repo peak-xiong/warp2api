@@ -3,9 +3,9 @@ module.exports = {
     {
       name: "warp2api-gateway",
       script: "uv",
-      cwd: "/Users/xiongfeng/Documents/Web3Projects/Warp2Api",
+      cwd: "/Users/xiongfeng/Documents/Web3Projects/warp2api",
       interpreter: "none",
-      args: "run warp2api-gateway --port 28889",
+      args: "run warp2api-gateway",
       watch: ["src", "static"],
       ignore_watch: [".git", ".venv", "logs", "__pycache__", "*.log"],
       watch_delay: 1200,
@@ -17,7 +17,6 @@ module.exports = {
       merge_logs: true,
       env: {
         PYTHONUNBUFFERED: "1",
-        WARP_TRUST_ENV: "0",
       },
     },
   ],

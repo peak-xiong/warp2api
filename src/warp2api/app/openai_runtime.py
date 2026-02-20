@@ -10,8 +10,21 @@ import os
 from .openai import gateway_app
 
 
-def run_gateway_server(port: int = 28889, reload: bool = False) -> None:
+def _resolve_port(cli_port: int | None = None) -> int:
+    if cli_port is not None:
+        return int(cli_port)
+    raw = (os.getenv("PORT") or "").strip()
+    if raw:
+        try:
+            return int(raw)
+        except Exception:
+            pass
+    return 28889
+
+
+def run_gateway_server(port: int | None = None, reload: bool = False) -> None:
     import uvicorn
+    resolved_port = _resolve_port(port)
 
     # Refresh JWT on startup before running the server
     try:
@@ -24,7 +37,7 @@ def run_gateway_server(port: int = 28889, reload: bool = False) -> None:
         uvicorn.run(
             "warp2api.app.openai:gateway_app",
             host=os.getenv("HOST", "127.0.0.1"),
-            port=port,
+            port=resolved_port,
             log_level="info",
             reload=True,
             reload_dirs=[".", "src"],
@@ -33,7 +46,7 @@ def run_gateway_server(port: int = 28889, reload: bool = False) -> None:
         uvicorn.run(
             gateway_app,
             host=os.getenv("HOST", "127.0.0.1"),
-            port=port,
+            port=resolved_port,
             log_level="info",
         )
 
@@ -46,7 +59,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="warp2api 多协议网关服务器")
-    parser.add_argument("--port", type=int, default=28889, help="服务器监听端口 (默认: 28889)")
+    parser.add_argument("--port", type=int, default=None, help="服务器监听端口 (默认: 从 PORT 或 28889)")
     parser.add_argument("--reload", action="store_true", help="启用热重载模式（代码修改自动重启）")
     args = parser.parse_args()
     run_gateway_server(port=args.port, reload=args.reload)

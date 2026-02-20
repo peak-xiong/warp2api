@@ -12,4 +12,4 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true", help="Enable autoreload")
     args = parser.parse_args()
 
-    run_gateway_server(port=args.port or 28889, reload=args.reload)
+    run_gateway_server(port=args.port, reload=args.reload)

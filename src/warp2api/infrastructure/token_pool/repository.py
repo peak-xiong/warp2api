@@ -9,8 +9,6 @@ from typing import Any, Dict, Iterable, List, Optional
 from warp2api.infrastructure.settings.settings import ROOT_DIR
 from warp2api.observability.logging import logger
 
-from .crypto import decrypt_refresh_token, encrypt_refresh_token, token_hash
-
 
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -38,8 +36,6 @@ class TokenRepository:
                 CREATE TABLE IF NOT EXISTS token_accounts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     refresh_token TEXT UNIQUE,
-                    token_hash TEXT,
-                    refresh_token_encrypted TEXT,
                     email TEXT,
                     api_key TEXT,
                     id_token TEXT,
@@ -101,177 +97,37 @@ class TokenRepository:
                 );
                 """
             )
-            self._migrate_legacy_schema(conn)
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_token_accounts_refresh_token
+                ON token_accounts(refresh_token)
+                WHERE refresh_token IS NOT NULL AND refresh_token <> ''
+                """
+            )
+            self._assert_strict_schema(conn)
 
     def _table_columns(self, conn: sqlite3.Connection, table: str) -> set[str]:
         rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
         return {str(r["name"]) for r in rows}
 
-    def _migrate_legacy_schema(self, conn: sqlite3.Connection) -> None:
+    def _assert_strict_schema(self, conn: sqlite3.Connection) -> None:
         account_cols = self._table_columns(conn, "token_accounts")
-        if "label" in account_cols:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS token_accounts_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    refresh_token TEXT UNIQUE,
-                    token_hash TEXT,
-                    refresh_token_encrypted TEXT,
-                    email TEXT,
-                    api_key TEXT,
-                    id_token TEXT,
-                    total_limit INTEGER,
-                    used_limit INTEGER,
-                    status TEXT NOT NULL DEFAULT 'active',
-                    error_count INTEGER NOT NULL DEFAULT 0,
-                    last_error_code TEXT,
-                    last_error_message TEXT,
-                    last_success_at TEXT,
-                    last_check_at TEXT,
-                    cooldown_until TEXT,
-                    use_count INTEGER NOT NULL DEFAULT 0,
-                    quota_limit INTEGER,
-                    quota_used INTEGER,
-                    quota_remaining INTEGER,
-                    quota_is_unlimited INTEGER,
-                    quota_next_refresh_time TEXT,
-                    quota_refresh_duration TEXT,
-                    quota_updated_at TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO token_accounts_new (
-                    id, refresh_token, token_hash, refresh_token_encrypted, email, api_key, id_token, total_limit, used_limit, status, error_count,
-                    last_error_code, last_error_message, last_success_at, last_check_at,
-                    cooldown_until, use_count, quota_limit, quota_used, quota_remaining, quota_is_unlimited, quota_next_refresh_time, quota_refresh_duration, quota_updated_at,
-                    created_at, updated_at
-                )
-                SELECT
-                    id, NULL, token_hash, refresh_token_encrypted, NULL, NULL, NULL, NULL, NULL, status, error_count,
-                    last_error_code, last_error_message, last_success_at, last_check_at,
-                    cooldown_until, use_count, quota_limit, quota_used, NULL, NULL, NULL, NULL, quota_updated_at,
-                    created_at, updated_at
-                FROM token_accounts
-                """
-            )
-            conn.execute("DROP TABLE token_accounts")
-            conn.execute("ALTER TABLE token_accounts_new RENAME TO token_accounts")
-
-        # Ensure metadata columns for account-style JSON import are present.
-        account_cols = self._table_columns(conn, "token_accounts")
-        for col, col_type in (
-            ("refresh_token", "TEXT"),
-            ("email", "TEXT"),
-            ("api_key", "TEXT"),
-            ("id_token", "TEXT"),
-            ("total_limit", "INTEGER"),
-            ("used_limit", "INTEGER"),
-            ("quota_remaining", "INTEGER"),
-            ("quota_is_unlimited", "INTEGER"),
-            ("quota_next_refresh_time", "TEXT"),
-            ("quota_refresh_duration", "TEXT"),
-        ):
-            if col not in account_cols:
-                conn.execute(f"ALTER TABLE token_accounts ADD COLUMN {col} {col_type}")
-
-        # Backfill refresh_token from legacy encrypted column when possible.
-        account_cols = self._table_columns(conn, "token_accounts")
-        if "refresh_token" in account_cols and "refresh_token_encrypted" in account_cols:
-            rows = conn.execute(
-                "SELECT id, refresh_token, refresh_token_encrypted FROM token_accounts"
-            ).fetchall()
-            for row in rows:
-                current = str(row["refresh_token"] or "").strip()
-                if current:
-                    continue
-                encrypted = str(row["refresh_token_encrypted"] or "").strip()
-                if not encrypted:
-                    continue
-                try:
-                    plain = decrypt_refresh_token(encrypted)
-                except Exception:
-                    plain = ""
-                if not plain:
-                    continue
-                conn.execute(
-                    "UPDATE token_accounts SET refresh_token = ? WHERE id = ?",
-                    (plain, int(row["id"])),
-                )
-
-        # Ensure only one row keeps same refresh token so unique index can be created.
-        rows = conn.execute(
-            "SELECT id, refresh_token FROM token_accounts WHERE refresh_token IS NOT NULL AND refresh_token <> '' ORDER BY id ASC"
-        ).fetchall()
-        seen: Dict[str, int] = {}
-        for row in rows:
-            token = str(row["refresh_token"] or "")
-            token_id = int(row["id"])
-            if token not in seen:
-                seen[token] = token_id
-                continue
-            conn.execute(
-                """
-                UPDATE token_accounts
-                SET refresh_token = NULL,
-                    status = 'disabled',
-                    last_error_code = 'duplicate_refresh_token',
-                    last_error_message = 'duplicate refresh token disabled during migration',
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (_utcnow_iso(), token_id),
-            )
-
-        conn.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_token_accounts_refresh_token
-            ON token_accounts(refresh_token)
-            WHERE refresh_token IS NOT NULL AND refresh_token <> ''
-            """
-        )
-
         health_cols = self._table_columns(conn, "token_health_snapshots")
-        if "token_preview" in health_cols:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS token_health_snapshots_new (
-                    token_id INTEGER PRIMARY KEY,
-                    healthy INTEGER NOT NULL DEFAULT 0,
-                    last_checked_at REAL NOT NULL DEFAULT 0,
-                    last_success_at REAL NOT NULL DEFAULT 0,
-                    last_error TEXT,
-                    consecutive_failures INTEGER NOT NULL DEFAULT 0,
-                    latency_ms INTEGER NOT NULL DEFAULT 0,
-                    updated_at TEXT NOT NULL
-                );
-                """
+
+        forbidden_account_cols = {"label", "token_hash", "refresh_token_encrypted"}
+        forbidden_health_cols = {"token_preview"}
+        bad_account = sorted(forbidden_account_cols.intersection(account_cols))
+        bad_health = sorted(forbidden_health_cols.intersection(health_cols))
+        if bad_account or bad_health:
+            raise RuntimeError(
+                "Unsupported legacy database schema detected. "
+                f"forbidden token_accounts columns={bad_account}, "
+                f"forbidden token_health_snapshots columns={bad_health}. "
+                f"Please remove database and restart: {self.db_path}"
             )
-            conn.execute(
-                """
-                INSERT INTO token_health_snapshots_new (
-                    token_id, healthy, last_checked_at, last_success_at,
-                    last_error, consecutive_failures, latency_ms, updated_at
-                )
-                SELECT
-                    token_id, healthy, last_checked_at, last_success_at,
-                    last_error, consecutive_failures, latency_ms, updated_at
-                FROM token_health_snapshots
-                """
-            )
-            conn.execute("DROP TABLE token_health_snapshots")
-            conn.execute("ALTER TABLE token_health_snapshots_new RENAME TO token_health_snapshots")
 
     def _row_to_public(self, row: sqlite3.Row) -> Dict[str, Any]:
         token_plain = str(row["refresh_token"] or "")
-        if not token_plain:
-            try:
-                token_plain = decrypt_refresh_token(row["refresh_token_encrypted"])
-            except Exception:
-                token_plain = ""
         return {
             "id": row["id"],
             "warp_refresh_token": token_plain,
@@ -352,18 +208,13 @@ class TokenRepository:
     def get_refresh_token(self, token_id: int) -> Optional[str]:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT refresh_token, refresh_token_encrypted FROM token_accounts WHERE id = ?",
+                "SELECT refresh_token FROM token_accounts WHERE id = ?",
                 (token_id,),
             ).fetchone()
         if not row:
             return None
         token_plain = str(row["refresh_token"] or "").strip()
-        if token_plain:
-            return token_plain
-        try:
-            return decrypt_refresh_token(row["refresh_token_encrypted"])
-        except Exception:
-            return None
+        return token_plain or None
 
     def find_token_id_by_refresh_token(self, refresh_token: str) -> Optional[int]:
         token = str(refresh_token or "").strip()
@@ -449,20 +300,16 @@ class TokenRepository:
                     "SELECT 1 FROM token_accounts WHERE refresh_token = ? LIMIT 1",
                     (token,),
                 ).fetchone() is not None
-                th = token_hash(token)
-                encrypted = encrypt_refresh_token(token)
                 conn.execute(
                     """
                     INSERT INTO token_accounts (
-                        refresh_token, token_hash, refresh_token_encrypted, status, created_at, updated_at
-                    ) VALUES (?, ?, ?, 'active', ?, ?)
+                        refresh_token, status, created_at, updated_at
+                    ) VALUES (?, 'active', ?, ?)
                     ON CONFLICT DO UPDATE SET
-                        token_hash=excluded.token_hash,
-                        refresh_token_encrypted=excluded.refresh_token_encrypted,
                         status='active',
                         updated_at=excluded.updated_at
                     """,
-                    (token, th, encrypted, now, now),
+                    (token, now, now),
                 )
                 if existed:
                     duplicated += 1
@@ -493,8 +340,6 @@ class TokenRepository:
                     (token,),
                 ).fetchone() is not None
 
-                th = token_hash(token)
-                encrypted = encrypt_refresh_token(token)
                 email = str(acc.get("email") or "").strip() or None
                 api_key = str(acc.get("api_key") or "").strip() or None
                 id_token = str(acc.get("id_token") or "").strip() or None
@@ -504,12 +349,10 @@ class TokenRepository:
                 conn.execute(
                     """
                     INSERT INTO token_accounts (
-                        refresh_token, token_hash, refresh_token_encrypted, email, api_key, id_token, total_limit, used_limit,
+                        refresh_token, email, api_key, id_token, total_limit, used_limit,
                         status, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
                     ON CONFLICT DO UPDATE SET
-                        token_hash=excluded.token_hash,
-                        refresh_token_encrypted=excluded.refresh_token_encrypted,
                         email = COALESCE(excluded.email, token_accounts.email),
                         api_key = COALESCE(excluded.api_key, token_accounts.api_key),
                         id_token = COALESCE(excluded.id_token, token_accounts.id_token),
@@ -518,7 +361,7 @@ class TokenRepository:
                         status='active',
                         updated_at=excluded.updated_at
                     """,
-                    (token, th, encrypted, email, api_key, id_token, total_limit, used_limit, now, now),
+                    (token, email, api_key, id_token, total_limit, used_limit, now, now),
                 )
                 if existed:
                     duplicated += 1
@@ -560,8 +403,6 @@ class TokenRepository:
         if refresh_token is not None:
             fields.append("refresh_token = ?")
             params.append(refresh_token)
-            fields.append("refresh_token_encrypted = ?")
-            params.append(encrypt_refresh_token(refresh_token))
         if total_limit is not None:
             fields.append("total_limit = ?")
             params.append(int(total_limit))

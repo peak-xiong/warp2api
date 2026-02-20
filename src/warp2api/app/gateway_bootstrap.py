@@ -17,12 +17,6 @@ async def startup_tasks() -> None:
     except Exception:
         pass
 
-    if STRICT_ENV and not strict_auth_config_ok():
-        raise RuntimeError(
-            "STRICT_ENV enabled but no auth material provided. "
-            "Set one of WARP_JWT / WARP_REFRESH_TOKEN / WARP_REFRESH_TOKENS / WARP_REFRESH_TOKEN_B64."
-        )
-
     try:
         from warp2api.infrastructure.protobuf.runtime import ensure_proto_runtime
 
@@ -33,11 +27,20 @@ async def startup_tasks() -> None:
         raise
 
     try:
-        _ = get_token_repository()
+        repo = get_token_repository()
         logger.info("✅ Token pool repository initialized")
     except Exception as e:
         logger.error("❌ Token pool repository init failed: %s", e)
         raise
+
+    if STRICT_ENV:
+        stats = repo.statistics()
+        has_pool_tokens = int(stats.get("total", 0) or 0) > 0
+        if not has_pool_tokens and not strict_auth_config_ok():
+            raise RuntimeError(
+                "STRICT_ENV enabled but no auth material available. "
+                "Add tokens into token pool (recommended) or set WARP_JWT / WARP_REFRESH_TOKEN_B64."
+            )
 
     try:
         from warp2api.infrastructure.auth.jwt_auth import get_jwt_token, is_token_expired

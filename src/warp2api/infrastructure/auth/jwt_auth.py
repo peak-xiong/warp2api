@@ -10,11 +10,9 @@ import base64
 import json
 import os
 import time
-from pathlib import Path
 from urllib.parse import parse_qs
 from typing import Optional, List
 import httpx
-from dotenv import set_key
 
 from warp2api.infrastructure.settings.settings import (
     REFRESH_TOKEN_B64,
@@ -86,7 +84,10 @@ def _split_refresh_tokens(raw: str) -> List[str]:
 
 
 def get_refresh_token_candidates(refresh_token_override: Optional[str] = None) -> List[str]:
-    """Return unique refresh-token candidates in priority order."""
+    """Return unique refresh-token candidates in priority order.
+
+    Unified mode: token pool should pass refresh_token_override explicitly.
+    """
     ordered: List[str] = []
 
     def _add(token: Optional[str]) -> None:
@@ -95,9 +96,6 @@ def get_refresh_token_candidates(refresh_token_override: Optional[str] = None) -
             ordered.append(t)
 
     _add(refresh_token_override)
-    _add(os.getenv("WARP_REFRESH_TOKEN"))
-    for t in _split_refresh_tokens(os.getenv("WARP_REFRESH_TOKENS", "")):
-        _add(t)
     if REFRESH_TOKEN_B64:
         _add(_extract_refresh_token_from_b64_payload())
     return ordered
@@ -135,7 +133,7 @@ async def _refresh_via_securetoken(refresh_token: str) -> dict:
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=False) as client:
         resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code != 200:
             raise RuntimeError(f"securetoken refresh failed: HTTP {resp.status_code} {resp.text[:200]}")
@@ -154,7 +152,7 @@ async def _refresh_via_securetoken(refresh_token: str) -> dict:
 async def refresh_jwt_token(refresh_token_override: Optional[str] = None) -> dict:
     """Refresh JWT using refresh token.
 
-    Priority: explicit refresh token > WARP_REFRESH_TOKEN > WARP_REFRESH_TOKENS > WARP_REFRESH_TOKEN_B64.
+    Priority: explicit refresh token > WARP_REFRESH_TOKEN_B64.
     Refresh flow priority: securetoken endpoint.
     """
     logger.info("Refreshing JWT token...")
@@ -181,27 +179,13 @@ async def refresh_jwt_token(refresh_token_override: Optional[str] = None) -> dic
 
 
 def update_env_file(new_jwt: str) -> bool:
-    env_path = Path(".env")
     try:
-        set_key(str(env_path), "WARP_JWT", new_jwt)
-        logger.info("Updated .env file with new JWT token")
+        os.environ["WARP_JWT"] = new_jwt
+        logger.info("Updated in-memory JWT token")
         return True
     except Exception as e:
-        logger.error(f"Error updating .env file: {e}")
+        logger.error(f"Error updating JWT token: {e}")
         return False
-
-
-def update_env_refresh_token(refresh_token: str) -> bool:
-    env_path = Path(".env")
-    try:
-        set_key(str(env_path), "WARP_REFRESH_TOKEN", refresh_token)
-        logger.info("Updated .env with WARP_REFRESH_TOKEN")
-        return True
-    except Exception as e:
-        logger.error(f"Error updating .env WARP_REFRESH_TOKEN: {e}")
-        return False
-
-
 async def check_and_refresh_token() -> bool:
     current_jwt = os.getenv("WARP_JWT")
     if not current_jwt:
@@ -212,9 +196,6 @@ async def check_and_refresh_token() -> bool:
             if not new_jwt:
                 return False
             ok = update_env_file(new_jwt)
-            new_refresh = str(token_data.get("refresh_token") or token_data.get("used_refresh_token") or "").strip()
-            if new_refresh:
-                update_env_refresh_token(new_refresh)
             return ok
         return False
     logger.debug("Checking current JWT token expiration...")
@@ -229,9 +210,6 @@ async def check_and_refresh_token() -> bool:
             if not is_token_expired(new_jwt, buffer_minutes=0):
                 logger.info("New token is valid")
                 ok = update_env_file(new_jwt)
-                new_refresh = str(token_data.get("refresh_token") or token_data.get("used_refresh_token") or "").strip()
-                if new_refresh:
-                    update_env_refresh_token(new_refresh)
                 return ok
             else:
                 logger.warning("New token appears to be invalid or expired")
@@ -340,7 +318,7 @@ async def _create_anonymous_user() -> dict:
         }
     }
     body = {"query": query, "variables": variables, "operationName": "CreateAnonymousUser"}
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=False) as client:
         resp = await client.post(_ANON_GQL_URL, headers=headers, json=body)
         if resp.status_code != 200:
             raise RuntimeError(f"CreateAnonymousUser failed: HTTP {resp.status_code} {resp.text[:200]}")
@@ -363,7 +341,7 @@ async def _exchange_id_token_for_refresh_token(id_token: str) -> dict:
         "returnSecureToken": "true",
         "token": id_token,
     }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), trust_env=False) as client:
         resp = await client.post(url, headers=headers, data=form)
         if resp.status_code != 200:
             raise RuntimeError(f"signInWithCustomToken failed: HTTP {resp.status_code} {resp.text[:200]}")

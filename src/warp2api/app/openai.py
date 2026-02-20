@@ -11,4 +11,4 @@ openai_app: FastAPI = gateway_app
 def main() -> None:
     from .openai_runtime import run_gateway_server
 
-    run_gateway_server(port=28889, reload=False)
+    run_gateway_server(port=None, reload=False)

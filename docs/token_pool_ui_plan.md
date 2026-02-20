@@ -37,7 +37,7 @@
 
 ### 2.2 不建议直接照搬的点
 
-- token 明文存储/展示策略过宽（需要改成加密存储 + mask 展示）
+- token 展示策略过宽（需要统一 mask 展示）
 - 业务内通过 `curl` shell 刷新 token（应统一为 HTTP client）
 - 失败状态以 `error_count` 阈值硬编码判定，状态语义不够清晰
 - UI 与业务逻辑耦合在单页面内联脚本，维护成本高
@@ -55,9 +55,7 @@
 建议新增 `TokenAccount`：
 
 - `id`
-- `label`
-- `token_hash`（唯一）
-- `refresh_token_encrypted`
+- `refresh_token`（唯一）
 - `status`：
   - `active`
   - `cooldown`
@@ -134,8 +132,8 @@
 
 ## 8. 数据与安全
 
-- refresh token 使用应用密钥加密后落库（AES-GCM）
-- 记录 `token_hash` 防重复导入
+- refresh token 明文落库（个人私有部署场景）
+- 通过 `refresh_token` 唯一约束防重复导入
 - 所有管理操作写审计日志：
   - 操作人、动作、目标 token、结果、时间
 
@@ -159,7 +157,7 @@ SQLite 细节（MVP 强制）：
 
 - 启用 WAL：`PRAGMA journal_mode=WAL`
 - 适当同步级别：`PRAGMA synchronous=NORMAL`
-- token 密文存储（AES-GCM）
+- refresh token 明文存储
 - 审计日志独立表（append-only）
 
 ### 9.2 Serverless 仅建议拆分混合方案

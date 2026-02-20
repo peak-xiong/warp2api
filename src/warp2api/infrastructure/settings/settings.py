@@ -18,7 +18,7 @@ LOGS_DIR = ROOT_DIR / "logs"
 WARP_URL = "https://app.warp.dev/ai/multi-agent"
 
 HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "8002"))
+PORT = int(os.getenv("PORT", "28889"))
 WARP_JWT = os.getenv("WARP_JWT")
 
 CLIENT_ID = os.getenv("WARP_CLIENT_ID", "warp-app")
@@ -48,7 +48,5 @@ def strict_auth_config_ok() -> bool:
     if not STRICT_ENV:
         return True
     has_jwt = bool((os.getenv("WARP_JWT") or "").strip())
-    has_refresh = bool((os.getenv("WARP_REFRESH_TOKEN") or "").strip())
-    has_refresh_pool = bool((os.getenv("WARP_REFRESH_TOKENS") or "").strip())
     has_refresh_b64 = bool((os.getenv("WARP_REFRESH_TOKEN_B64") or "").strip())
-    return has_jwt or has_refresh or has_refresh_pool or has_refresh_b64
+    return has_jwt or has_refresh_b64
