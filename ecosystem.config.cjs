@@ -3,7 +3,7 @@ module.exports = {
     {
       name: "warp2api-gateway",
       script: "uv",
-      cwd: "/Users/xiongfeng/Documents/Web3Projects/warp2api",
+      cwd: "./",
       interpreter: "none",
       args: "run warp2api-gateway",
       watch: ["src", "static"],
