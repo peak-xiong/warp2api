@@ -4,47 +4,51 @@ import time
 from typing import Dict, List, Tuple
 
 
-def _label(model_id: str) -> str:
-    return model_id.replace("-", " ")
-
-
-def _expand_gpt(base_id: str, with_xhigh: bool) -> List[Tuple[str, str]]:
-    variants: List[Tuple[str, str]] = [(base_id, _label(base_id))]
-    levels = ["low", "medium", "high"]
-    if with_xhigh:
-        levels.append("xhigh")
-    for level in levels:
-        model_id = f"{base_id}-{level}"
-        variants.append((model_id, _label(model_id)))
-    return variants
-
-
 def _build_supported_models() -> List[Tuple[str, str, int]]:
     ordered: List[Tuple[str, str]] = [
         ("auto", "auto"),
+        ("auto-efficient", "auto efficient"),
+        ("auto-genius", "auto genius"),
         ("claude-4-sonnet", "claude 4 sonnet"),
         ("claude-4.1-opus", "claude 4.1 opus"),
-        ("claude-4.5-haiku", "claude 4.5 haiku"),
-        ("claude-4.5-opus", "claude 4.5 opus"),
-        ("claude-4.5-opus-thinking", "claude 4.5 opus thinking"),
-        ("claude-4.5-sonnet", "claude 4.5 sonnet"),
-        ("claude-4.5-sonnet-thinking", "claude 4.5 sonnet thinking"),
-        ("claude-4.6-opus", "claude 4.6 opus"),
-        ("claude-4.6-opus-max", "claude 4.6 opus max"),
-        ("claude-4.6-sonnet", "claude 4.6 sonnet"),
-        ("claude-4.6-sonnet-max", "claude 4.6 sonnet max"),
+        ("claude-4-5-haiku", "claude 4.5 haiku"),
+        ("claude-4-5-opus", "claude 4.5 opus"),
+        ("claude-4-5-opus-thinking", "claude 4.5 opus thinking"),
+        ("claude-4-5-sonnet", "claude 4.5 sonnet"),
+        ("claude-4-5-sonnet-thinking", "claude 4.5 sonnet thinking"),
+        ("claude-4-6-opus-high", "claude 4.6 opus"),
+        ("claude-4-6-opus-max", "claude 4.6 opus max"),
+        ("claude-4-6-sonnet-high", "claude 4.6 sonnet"),
+        ("claude-4-6-sonnet-max", "claude 4.6 sonnet max"),
         ("gemini-2.5-pro", "gemini 2.5 pro"),
         ("gemini-3-pro", "gemini 3 pro"),
-        ("glm-4.7-us-hosted", "glm 4.7 (us-hosted)"),
+        ("glm-47-fireworks", "glm 4.7 (fireworks)"),
+        ("gpt-5", "gpt-5"),
+        ("gpt-5-low-reasoning", "gpt-5 low"),
+        ("gpt-5 (high reasoning)", "gpt-5 high"),
+        ("gpt-5-1-low-reasoning", "gpt-5.1 low"),
+        ("gpt-5-1-medium-reasoning", "gpt-5.1 medium"),
+        ("gpt-5-1-high-reasoning", "gpt-5.1 high"),
+        ("gpt-5-1-codex-low", "gpt-5.1 codex low"),
+        ("gpt-5-1-codex-medium", "gpt-5.1 codex medium"),
+        ("gpt-5-1-codex-high", "gpt-5.1 codex high"),
+        ("gpt-5-1-codex-max-low", "gpt-5.1 codex max low"),
+        ("gpt-5-1-codex-max-medium", "gpt-5.1 codex max medium"),
+        ("gpt-5-1-codex-max-high", "gpt-5.1 codex max high"),
+        ("gpt-5-1-codex-max-xhigh", "gpt-5.1 codex max xhigh"),
+        ("gpt-5-2-low", "gpt-5.2 low"),
+        ("gpt-5-2-medium", "gpt-5.2 medium"),
+        ("gpt-5-2-high", "gpt-5.2 high"),
+        ("gpt-5-2-xhigh", "gpt-5.2 xhigh"),
+        ("gpt-5-2-codex-low", "gpt-5.2 codex low"),
+        ("gpt-5-2-codex-medium", "gpt-5.2 codex medium"),
+        ("gpt-5-2-codex-high", "gpt-5.2 codex high"),
+        ("gpt-5-2-codex-xhigh", "gpt-5.2 codex xhigh"),
+        ("gpt-5-3-codex-low", "gpt-5.3 codex low"),
+        ("gpt-5-3-codex-medium", "gpt-5.3 codex medium"),
+        ("gpt-5-3-codex-high", "gpt-5.3 codex high"),
+        ("gpt-5-3-codex-xhigh", "gpt-5.3 codex xhigh"),
     ]
-
-    ordered.extend(_expand_gpt("gpt-5", with_xhigh=False))
-    ordered.extend(_expand_gpt("gpt-5.1", with_xhigh=True))
-    ordered.extend(_expand_gpt("gpt-5.1-codex", with_xhigh=True))
-    ordered.extend(_expand_gpt("gpt-5.1-codex-max", with_xhigh=True))
-    ordered.extend(_expand_gpt("gpt-5.2", with_xhigh=True))
-    ordered.extend(_expand_gpt("gpt-5.2-codex", with_xhigh=True))
-    ordered.extend(_expand_gpt("gpt-5.3-codex", with_xhigh=True))
 
     return [(model_id, display_name, index) for index, (model_id, display_name) in enumerate(ordered)]
 

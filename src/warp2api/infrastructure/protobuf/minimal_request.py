@@ -44,6 +44,7 @@ def build_minimal_warp_request(
     home_dir: str = "/tmp",
     model_tag: str = "auto",
     coding_tag: str = "cli-agent-auto",
+    computer_use_tag: str = "computer-use-agent-auto",
 ) -> bytes:
     now_ms = int(time.time() * 1000)
     ts = now_ms // 1000
@@ -60,7 +61,9 @@ def build_minimal_warp_request(
     field2_6 = _enc_message(1, _enc_message(1, query_content))
     field2 = _enc_message(1, field2_1) + _enc_message(6, field2_6)
 
-    model_cfg = _enc_string(1, model_tag) + _enc_string(4, coding_tag)
+    # Keep model_config aligned with real Warp client shape:
+    # 1=base, 4=coding, 5=computer-use.
+    model_cfg = _enc_string(1, model_tag) + _enc_string(4, coding_tag) + _enc_string(5, computer_use_tag)
     caps = bytes([0x06, 0x07, 0x0C, 0x08, 0x09, 0x0F, 0x0E, 0x00, 0x0B, 0x10, 0x0A, 0x14, 0x11, 0x13, 0x12, 0x02, 0x03, 0x01, 0x0D])
     caps2 = bytes([0x0A, 0x14, 0x06, 0x07, 0x0C, 0x02, 0x01])
     field3 = (
