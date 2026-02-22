@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from warp2api.infrastructure.utils.datetime import parse_iso, utcnow_timestamp
 from warp2api.infrastructure.settings.settings import (
     CLIENT_VERSION,
     OS_VERSION,
@@ -17,6 +17,7 @@ from warp2api.observability.logging import logger
 
 from warp2api.application.services.token_lock_service import token_lock
 from warp2api.application.services.token_pool_service import get_token_pool_service
+from warp2api.domain.protocols.token_repository import TokenRepositoryProtocol
 from warp2api.infrastructure.protobuf.minimal_request import build_minimal_warp_request
 from warp2api.infrastructure.token_pool.repository import get_token_repository
 from warp2api.infrastructure.transport.warp_transport import send_warp_protobuf_request
@@ -24,6 +25,8 @@ from warp2api.infrastructure.transport.warp_transport import send_warp_protobuf_
 _UNHEALTHY_FAILURE_THRESHOLD = WARP_TOKEN_UNHEALTHY_FAILURE_THRESHOLD
 _REQUEST_RETRY_COUNT = WARP_REQUEST_RETRY_COUNT
 _REQUEST_RETRY_BASE_DELAY_MS = WARP_REQUEST_RETRY_BASE_DELAY_MS
+
+_parse_iso = parse_iso
 
 
 def _is_retryable_result(result: Dict[str, Any]) -> bool:
@@ -72,21 +75,12 @@ def _should_rotate_token(result: Dict[str, Any]) -> bool:
     )
 
 
-def _parse_iso(ts: Optional[str]) -> float:
-    raw = (ts or "").strip()
-    if not raw:
-        return 0.0
-    try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
-    except Exception:
-        return 0.0
-
-
 def _select_pool_candidates(max_token_attempts: int) -> List[Dict[str, Any]]:
-    repo = get_token_repository()
-    now_ts = datetime.now(timezone.utc).timestamp()
+    repo: TokenRepositoryProtocol = get_token_repository()
+    now_ts = utcnow_timestamp()
     rows = repo.list_tokens()
-    health_by_id = {int(h["token_id"]): h for h in repo.list_health_snapshots()}
+    health_by_id = {
+        int(h["token_id"]): h for h in repo.list_health_snapshots()}
     candidates: List[Dict[str, Any]] = []
 
     for row in rows:
@@ -124,12 +118,14 @@ def _select_pool_candidates(max_token_attempts: int) -> List[Dict[str, Any]]:
     # 1) hard availability filter done above
     # 2) quality ranking (error/use/last_success)
     # 3) round-robin over the ranked list to avoid hotspot accounts
-    candidates.sort(key=lambda x: (x["error_count"], x["use_count"], -x["last_success_ts"], x["id"]))
+    candidates.sort(key=lambda x: (
+        x["error_count"], x["use_count"], -x["last_success_ts"], x["id"]))
     if not candidates:
         return []
 
     state = repo.get_app_state("scheduler.last_token_id")
-    last_id = int(state["value"]) if state and str(state.get("value", "")).isdigit() else None
+    last_id = int(state["value"]) if state and str(
+        state.get("value", "")).isdigit() else None
 
     start = 0
     if last_id is not None:
@@ -145,7 +141,7 @@ def _select_pool_candidates(max_token_attempts: int) -> List[Dict[str, Any]]:
 def get_token_pool_status() -> Dict[str, Any]:
     repo = get_token_repository()
     items = repo.list_tokens()
-    now_ts = datetime.now(timezone.utc).timestamp()
+    now_ts = utcnow_timestamp()
 
     out = []
     for item in items:
@@ -198,7 +194,8 @@ async def send_protobuf_with_rotation(
     model_tag: Optional[str] = None,
 ) -> Dict[str, Any]:
     attempts: List[Dict[str, Any]] = []
-    last_result: Dict[str, Any] = {"ok": False, "status_code": 503, "error": "no token attempted"}
+    last_result: Dict[str, Any] = {
+        "ok": False, "status_code": 503, "error": "no token attempted"}
     candidates = _select_pool_candidates(max_token_attempts=max_token_attempts)
 
     if not candidates:
@@ -226,14 +223,16 @@ async def send_protobuf_with_rotation(
         try:
             async with token_lock(token_id):
                 token_data = await refresh_jwt_token(refresh_token_override=refresh_token)
-                jwt = str(token_data.get("access_token") or token_data.get("id_token") or "").strip()
+                jwt = str(token_data.get("access_token")
+                          or token_data.get("id_token") or "").strip()
                 if not jwt:
                     raise RuntimeError("refresh returned empty token")
 
-                final_result: Dict[str, Any] = {"ok": False, "status_code": 502, "error": "request not executed"}
+                final_result: Dict[str, Any] = {
+                    "ok": False, "status_code": 502, "error": "request not executed"}
                 for req_try in range(1, _REQUEST_RETRY_COUNT + 1):
                     try:
-                        result = send_warp_protobuf_request(
+                        result = await send_warp_protobuf_request(
                             body=protobuf_bytes,
                             jwt=jwt,
                             timeout_seconds=timeout_seconds,
@@ -241,7 +240,8 @@ async def send_protobuf_with_rotation(
                             os_version=os_version or OS_VERSION,
                         )
                     except Exception as exc:
-                        result = {"ok": False, "status_code": 0, "error": str(exc)}
+                        result = {"ok": False,
+                                  "status_code": 0, "error": str(exc)}
 
                     final_result = result
                     err_info = pool.parse_runtime_request_error(result)
@@ -266,7 +266,8 @@ async def send_protobuf_with_rotation(
                     if delay_s > 0:
                         await asyncio.sleep(delay_s)
 
-                pool.mark_runtime_request_result(token_id, final_result, actor="runtime")
+                pool.mark_runtime_request_result(
+                    token_id, final_result, actor="runtime")
                 if final_result.get("ok") or not _should_rotate_token(final_result):
                     final_result["attempts"] = attempts
                     if model_tag is not None:
@@ -283,7 +284,8 @@ async def send_protobuf_with_rotation(
                 }
             )
             last_result = {"ok": False, "status_code": 502, "error": str(exc)}
-            logger.warning("token pool rotation attempt failed: token_id=%s err=%s", token_id, exc)
+            logger.warning(
+                "token pool rotation attempt failed: token_id=%s err=%s", token_id, exc)
 
     last_result["attempts"] = attempts
     if model_tag is not None:

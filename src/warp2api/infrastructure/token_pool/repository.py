@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Generator, Iterable, List, Optional
 
 from warp2api.infrastructure.settings.settings import ROOT_DIR, get_token_db_path
+from warp2api.infrastructure.utils.datetime import utcnow_iso
 from warp2api.observability.logging import logger
 
 
-def _utcnow_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_utcnow_iso = utcnow_iso
 
 
 class TokenRepository:
@@ -18,15 +19,34 @@ class TokenRepository:
         path = db_path or str(ROOT_DIR / "data" / "token_pool.db")
         self.db_path = Path(path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._local = threading.local()
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        conn.execute("PRAGMA foreign_keys=ON;")
+    def _get_connection(self) -> sqlite3.Connection:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(
+                str(self.db_path),
+                check_same_thread=False,
+                timeout=30.0,
+            )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            conn.execute("PRAGMA foreign_keys=ON;")
+            conn.execute("PRAGMA busy_timeout=30000;")
+            self._local.conn = conn
         return conn
+
+    @contextmanager
+    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
+        conn = self._get_connection()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -113,7 +133,8 @@ class TokenRepository:
         account_cols = self._table_columns(conn, "token_accounts")
         health_cols = self._table_columns(conn, "token_health_snapshots")
 
-        forbidden_account_cols = {"label", "token_hash", "refresh_token_encrypted"}
+        forbidden_account_cols = {
+            "label", "token_hash", "refresh_token_encrypted"}
         forbidden_health_cols = {"token_preview"}
         bad_account = sorted(forbidden_account_cols.intersection(account_cols))
         bad_health = sorted(forbidden_health_cols.intersection(health_cols))
@@ -327,7 +348,8 @@ class TokenRepository:
         with self._connect() as conn:
             for raw in accounts:
                 acc = raw or {}
-                token = str(acc.get("refresh_token") or "").strip().strip("'").strip('"')
+                token = str(acc.get("refresh_token")
+                            or "").strip().strip("'").strip('"')
                 if not token:
                     invalid += 1
                     continue
@@ -360,7 +382,8 @@ class TokenRepository:
                         status='active',
                         updated_at=excluded.updated_at
                     """,
-                    (token, email, api_key, id_token, total_limit, used_limit, now, now),
+                    (token, email, api_key, id_token,
+                     total_limit, used_limit, now, now),
                 )
                 if existed:
                     duplicated += 1
@@ -465,7 +488,8 @@ class TokenRepository:
 
     def statistics(self) -> Dict[str, Any]:
         with self._connect() as conn:
-            total = conn.execute("SELECT COUNT(*) AS c FROM token_accounts").fetchone()["c"]
+            total = conn.execute(
+                "SELECT COUNT(*) AS c FROM token_accounts").fetchone()["c"]
             by_status_rows = conn.execute(
                 "SELECT status, COUNT(*) AS c FROM token_accounts GROUP BY status"
             ).fetchall()
@@ -487,7 +511,8 @@ class TokenRepository:
                 INSERT INTO token_audit_logs (action, actor, token_id, result, detail, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (action, actor, token_id, result, detail[:1000], _utcnow_iso()),
+                (action, actor, token_id, result,
+                 detail[:1000], _utcnow_iso()),
             )
 
     def list_audit_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
@@ -580,7 +605,8 @@ class TokenRepository:
 
     def get_app_state(self, key: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM app_state WHERE key = ?", (key,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM app_state WHERE key = ?", (key,)).fetchone()
         return dict(row) if row else None
 
 
@@ -594,5 +620,6 @@ def get_token_repository() -> TokenRepository:
     if _repo_singleton is None or db_path != _repo_db_path:
         _repo_singleton = TokenRepository(db_path=db_path)
         _repo_db_path = db_path
-        logger.info("Token repository initialized at %s", _repo_singleton.db_path)
+        logger.info("Token repository initialized at %s",
+                    _repo_singleton.db_path)
     return _repo_singleton

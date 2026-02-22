@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import http.client
 import json
 from typing import Any, Dict
 
+import httpx
+
 from warp2api.infrastructure.settings.settings import CLIENT_ID, CLIENT_VERSION, OS_CATEGORY, OS_NAME, OS_VERSION
+from warp2api.infrastructure.transport.warp_transport import get_httpx_client
 
 
-def get_request_limit(access_token: str) -> Dict[str, Any]:
+async def get_request_limit(access_token: str) -> Dict[str, Any]:
     token = str(access_token or "").strip()
     if not token:
         raise ValueError("missing access token")
@@ -52,36 +54,29 @@ query GetRequestLimitInfo($requestContext: RequestContext!) {
         },
         "query": query,
     }
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
-    conn = http.client.HTTPSConnection("app.warp.dev", timeout=20)
-    try:
-        conn.request(
-            "POST",
-            "/graphql/v2?op=GetRequestLimitInfo",
-            body=body,
-            headers={
-                "Content-Type": "application/json",
-                "Content-Length": str(len(body)),
-                "Authorization": f"Bearer {token}",
-                "x-warp-client-id": CLIENT_ID or "warp-app",
-                "x-warp-client-version": CLIENT_VERSION,
-                "x-warp-os-category": OS_CATEGORY,
-                "x-warp-os-name": OS_NAME,
-                "x-warp-os-version": OS_VERSION,
-            },
-        )
-        resp = conn.getresponse()
-        raw = resp.read().decode("utf-8", errors="replace")
-    finally:
-        conn.close()
+    client = get_httpx_client()
+    resp = await client.post(
+        "https://app.warp.dev/graphql/v2?op=GetRequestLimitInfo",
+        json=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "x-warp-client-id": CLIENT_ID or "warp-app",
+            "x-warp-client-version": CLIENT_VERSION,
+            "x-warp-os-category": OS_CATEGORY,
+            "x-warp-os-name": OS_NAME,
+            "x-warp-os-version": OS_VERSION,
+        },
+        timeout=httpx.Timeout(20.0),
+    )
 
-    if resp.status < 200 or resp.status >= 300:
-        snippet = raw[:400].replace("\n", " ")
-        raise RuntimeError(f"warp quota http {resp.status}: {snippet}")
+    if resp.status_code < 200 or resp.status_code >= 300:
+        snippet = resp.text[:400].replace("\n", " ")
+        raise RuntimeError(f"warp quota http {resp.status_code}: {snippet}")
 
     try:
-        data = json.loads(raw)
+        data = resp.json()
     except Exception as exc:
         raise RuntimeError(f"invalid quota json: {exc}") from exc
 

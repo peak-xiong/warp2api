@@ -17,7 +17,7 @@ def test_send_protobuf_uses_token_pool(monkeypatch, tmp_path: Path):
     async def _fake_refresh(*args, **kwargs):
         return {"access_token": "jwt-ok"}
 
-    def _fake_send(**kwargs):
+    async def _fake_send(**kwargs):
         return {"ok": True, "status_code": 200, "response": "ok"}
 
     monkeypatch.setattr(
@@ -54,7 +54,7 @@ def test_quota_error_sets_quota_exhausted(monkeypatch, tmp_path: Path):
     async def _fake_refresh(*args, **kwargs):
         return {"access_token": "jwt-ok"}
 
-    def _fake_send(**kwargs):
+    async def _fake_send(**kwargs):
         return {"ok": False, "status_code": 429, "error": "No remaining quota"}
 
     monkeypatch.setattr(
@@ -93,7 +93,7 @@ def test_429_without_quota_text_sets_cooldown(monkeypatch, tmp_path: Path):
     async def _fake_refresh(*args, **kwargs):
         return {"access_token": "jwt-ok"}
 
-    def _fake_send(**kwargs):
+    async def _fake_send(**kwargs):
         return {"ok": False, "status_code": 429, "error": "Too Many Requests"}
 
     monkeypatch.setattr(
@@ -136,7 +136,7 @@ def test_token_lock_serializes_same_token(monkeypatch, tmp_path: Path):
         active["n"] -= 1
         return {"access_token": "jwt-ok"}
 
-    def _fake_send(**kwargs):
+    async def _fake_send(**kwargs):
         return {"ok": True, "status_code": 200, "response": "ok"}
 
     monkeypatch.setattr(
@@ -194,7 +194,7 @@ def test_scheduler_rotates_tokens_more_evenly(monkeypatch, tmp_path: Path):
     async def _fake_refresh(*args, **kwargs):
         return {"access_token": "jwt-ok"}
 
-    def _fake_send(**kwargs):
+    async def _fake_send(**kwargs):
         return {"ok": True, "status_code": 200, "response": "ok"}
 
     monkeypatch.setattr(
@@ -252,7 +252,7 @@ def test_scheduler_skips_unhealthy_tokens(monkeypatch, tmp_path: Path):
     async def _fake_refresh(*args, **kwargs):
         return {"access_token": "jwt-ok"}
 
-    def _fake_send(**kwargs):
+    async def _fake_send(**kwargs):
         return {"ok": True, "status_code": 200, "response": "ok"}
 
     monkeypatch.setattr(
@@ -289,9 +289,16 @@ def test_refresh_token_merges_duplicate_refresh_token(monkeypatch, tmp_path: Pat
     async def _fake_refresh(*args, **kwargs):
         return {"access_token": "jwt-ok", "refresh_token": "rt-merge-a"}
 
+    async def _fake_quota(*args, **kwargs):
+        return {"request_limit": 100, "requests_used": 0, "requests_remaining": 100, "is_unlimited": False}
+
     monkeypatch.setattr(
-        "warp2api.application.services.token_pool_service.refresh_jwt_token",
+        "warp2api.application.services.token_refresh_service.refresh_jwt_token",
         _fake_refresh,
+    )
+    monkeypatch.setattr(
+        "warp2api.application.services.token_refresh_service.get_request_limit",
+        _fake_quota,
     )
 
     result = asyncio.run(svc.refresh_token(id_b, actor="test"))

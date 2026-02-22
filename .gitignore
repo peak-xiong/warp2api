@@ -19,3 +19,6 @@ packets_docs/
 
 # Runtime data
 data/
+
+# Windsurf IDE
+.windsurf/
